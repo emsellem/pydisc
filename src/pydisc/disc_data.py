@@ -9,8 +9,6 @@ from numpy import deg2rad
 
 # Float
 from .misc_io import add_suffix, default_float, add_err_prefix
-
-# Check
 from . import check, transform
 
 class datamap(object):
@@ -109,6 +107,8 @@ class dataset(object):
         elif data is not None:
             self.shape = data.shape
 
+        self.Xcen = kwargs.pop("Xcen", self.shape[0] / 2.)
+        self.Ycen = kwargs.pop("Ycen", self.shape[1] / 2.)
         if not self._init_XY(Xin, Yin, nameX, nameY):
             print("ERROR: Xin and Yin are not compatible - Aborting.")
             return
@@ -147,20 +147,20 @@ class dataset(object):
         # If it is the case, using the reference dataset
         if Xin is None or Yin is None:
             ref_ind = np.indices(self.shape, dtype=default_float)
-            if Xin is None: Xin = ref_ind[1]
-            if Yin is None: Yin = ref_ind[0]
+            if Xin is None: Xin = ref_ind[1] - self.Xcen
+            if Yin is None: Yin = ref_ind[0] - self.Ycen
 
         if not check._check_consistency_sizes([Xin, Yin]):
             print("ERROR: errors on sizes of Xin and Yin")
             return False
         else:
-            self.shape = Xin.shape
             # Making sure the shapes agree
             Yin = Yin.reshape(self.shape)
             self._nameX = add_suffix(nameX, self.flag)
             self._nameY = add_suffix(nameY, self.flag)
             self.Xin = Xin
             self.Yin = Yin
+            self.XYin_extent = [np.min(Xin), np.max(Xin), np.min(Yin), np.max(Yin)]
             return True
 
     def attach_data(self, data, order=0, edata=None, data_name="", data_attr_name=""):
@@ -191,11 +191,6 @@ class dataset(object):
 
         setattr(self, data_attr_name, self.datamaps[name_data_key].data)
         setattr(self, add_err_prefix(data_attr_name), self.datamaps[name_data_key].edata)
-
-    def check_XYin(self):
-        """Check if Xin and Yin are ok and consistent
-        """
-
 
     def check_data(self, name_datamap="all"):
         """Check consistency of data
@@ -287,6 +282,18 @@ class dataset(object):
         self.__alpha_North_rad = deg2rad(alpha_North)
         self._mat_NE = self._mat_direct * transform.set_rotmatrix(self.__alpha_North_rad)
 
+    def _get_angle_from_PA(self, PA):
+        """Provide a way to get the angle within the original
+        frame of a certain axis with a given PA
+        Args:
+            PA: float
+                PA of axis with respect to North
+
+        Returns:
+            The angle in the original frame
+        """
+        return PA + self.alpha_North * np.where(self.NE_direct, 1., -1.)
+
     def align_xy_NorthEast(self) :
         """Get North to the top and East on the left
         """
@@ -296,7 +303,8 @@ class dataset(object):
         """Set the Line of Nodes (defined by its Position Angle, angle from the North
         going counter-clockwise) as the positive X axis
         """
-        self.X_lon, self.Y_lon = self.rotate(matrix=galaxy._mat_lon * self._mat_NE)
+        self._mat_lon_NE = galaxy._mat_lon * self._mat_NE
+        self.X_lon, self.Y_lon = self.rotate(matrix=self._mat_lon_NE)
 
     def align_xy_bar(self, galaxy) :
         """Set the bar (defined by its Position Angle, angle from the North
@@ -331,6 +339,56 @@ class dataset(object):
         Y = kwargs.pop("Y", self.Yin)
         return transform.rotate_vectors(X, Y, **kwargs)
 
-class profile(object):
+class Profile(object):
     def __init__(self):
         pass
+
+class Slicing(object):
+    """Provides a way to slice a 2D field. This class just
+    computes the slits positions for further usage.
+    """
+    def __init__(self, yextent=[-10.,10.], yin=None, slit_width=1.0, nslits=None):
+        """Initialise the Slice by computing the number of slits and
+        their positions (defined by the axis 'y').
+
+        Args:
+            yextent: list of 2 floats
+                [ymin, ymax]
+            yin: numpy array
+                input y position
+            slit_width: float
+                Width of the slit
+            nslits: int
+                Number of slits. This is optional if a range or input yin
+                is provided.
+        """
+
+        # First deriving the range. Priority is on yin
+        if yin is not None:
+            yextent = [np.min(yin), np.max(yin)]
+        # First deriving the number of slits prioritising nslits
+
+        Dy = np.abs(yextent[1] - yextent[0])
+        if nslits is None:
+            self.nslits = np.int(Dy / slit_width + 1.0)
+            ye2 = (Dy - self.nslits * slit_width) / 2.
+            # Adding left-over on both sides equally
+            yextent = [yextent[0] - ye2, yextent[1] + ye2]
+        else:
+            self.nslits = nslits
+            slit_width = Dy / self.nslits
+
+        self.width = slit_width
+        sw2 = slit_width / 2.
+        self.ycentres = np.linspace(yextent[0] + sw2, yextent[1] - sw2, self.nslits)
+        self.yedges = np.linspace(yextent[0], yextent[1], self.nslits+1)
+        self.yiter = np.arange(self.nslits)
+
+        @property
+        def yextent(self):
+            return [self.yedges[0], self.yedges[-1]]
+
+        @property
+        def slice_width(self):
+            return np.abs(self.yedges[-1] - self.yedges[0])
+

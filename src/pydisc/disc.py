@@ -18,8 +18,9 @@ from scipy.interpolate import griddata as gdata
 # local modules
 from .galaxy import Galaxy
 from . import transform
-from .disc_data import dataset
+from .disc_data import dataset, Slicing
 from .misc_io import add_err_prefix
+from .plotting import show_tw
 
 dic_moments = OrderedDict([
                 (-1, [("Xin", "X", "X axis coordinate"), ("Yin", "Y", "Y axis coordinate")]),
@@ -69,6 +70,38 @@ class DiscModel(Galaxy):
 
         # initialise datasets
         self.init_datasets(**kwargs)
+
+        # init slicing
+        self.init_slicing()
+
+    @property
+    def slicing(self):
+        if bool(self.slicings):
+            return self.slicings[list(self.slicings.keys())[0]]
+        else:
+            return {}
+
+    def _get_slicing(self, slicing_name):
+        if slicing_name is None:
+            return self.slicing
+        else:
+            return self.slicings[slicing_name]
+
+    def init_slicing(self):
+        """Initialise the slice dictionary if needed
+        """
+        if not hasattr(self, "slicings"):
+            self.slicings = {}
+
+    def add_slicing(self, value, slicing_name=""):
+        """
+        Args:
+            slits_name: str
+                Name of the slicing
+            slits: Slicing
+                Input to add.
+        """
+        self.slicings[slicing_name] = value
 
     def init_datasets(self, **kwargs):
         """Initalise the dataset by setting an empty
@@ -169,10 +202,10 @@ class DiscModel(Galaxy):
         """Deproject Velocity values by dividing by the sin(inclination)
         """
 
-        dataset = self._get_dataset(dataset_name)
-        if hasattr(dataset, read_mom_attr(1)[0]):
-            V = getattr(dataset, read_mom_attr(1)[0])
-            dataset.Vdep = transform.deproject_velocities(V, self.inclin)
+        ds = self._get_dataset(dataset_name)
+        if hasattr(ds, read_mom_attr(1)[0]):
+            V = getattr(ds, read_mom_attr(1)[0])
+            ds.Vdep = transform.deproject_velocities(V, self.inclin)
         else:
             print("ERROR: no velocity data found in this dataset")
 
@@ -215,51 +248,44 @@ class DiscModel(Galaxy):
         fV = ds.Flux * -ds.Vel
         # Get the Flux * X
         fx = ds.Flux * ds.X_lon
-
         # Get the errors
         fV_err = fV * np.sqrt((ds.eFlux / ds.Flux)**2 + (ds.eVel / ds.Vel)**2)
 
-        maxY = np.maximum(np.abs(np.max(ds.Y_lon)), np.abs(np.min(ds.Y_lon)))
-        self.nslits = np.int(maxY / slit_width - 1 / 2.)
-        self.y_slits = np.linspace(-self.nslits * slit_width, self.nslits * slit_width,
-                                    2*self.nslits+1)
-        sw2 = slit_width / 2.
-
-        # Digitize the Y coordinates along the slits
-        dig = np.digitize(ds.Y_lon, self.y_slits).ravel()
+        ds_slits = Slicing(yin=ds.Y_lon, slit_width=slit_width)
+        # Digitize the Y coordinates along the slits and minus 1 to be at the boundary
+        dig = np.digitize(ds.Y_lon, ds_slits.yedges).ravel() - 1
+        # Select out points which are out of the edges
+        selin = (dig >= 0) & (dig < len(ds_slits.yedges)-1)
 
         # Then count them with the weights
-        flux_slit = np.bincount(dig, weights=np.nan_to_num(ds.Flux).ravel())
-        fluxVel_slit = np.bincount(dig, weights=np.nan_to_num(fV).ravel())
-        fluxX_slit = np.bincount(dig, weights=np.nan_to_num(fx).ravel())
-        self.Omsini_tw = fluxVel_slit / fluxX_slit
-        self.dfV_tw = fluxVel_slit / flux_slit
-        self.dfx_tw = fluxX_slit / flux_slit
+        flux_slit = np.bincount(dig[selin],
+                                weights=np.nan_to_num(ds.Flux).ravel()[selin])
+        fluxVel_slit = np.bincount(dig[selin],
+                                   weights=np.nan_to_num(fV).ravel()[selin])
+        fluxX_slit = np.bincount(dig[selin],
+                                 weights=np.nan_to_num(fx).ravel()[selin])
+        ds_slits.Omsini_tw = fluxVel_slit / fluxX_slit
+        ds_slits.dfV_tw = fluxVel_slit / flux_slit
+        ds_slits.dfx_tw = fluxX_slit / flux_slit
 
         # Calculate errors.
-        err_flux_slit = np.sqrt(np.bincount(dig, weights=np.nan_to_num(ds.eFlux**2).ravel()))
-        err_fluxVel_slit = np.sqrt(np.bincount(dig, weights=np.nan_to_num(fV_err**2).ravel()))
-        err_percentage_vel = err_fluxVel_slit / flux_slit
+        err_flux_slit = np.sqrt(np.bincount(dig[selin],
+                                            weights=np.nan_to_num(ds.eFlux**2).ravel()[selin]))
+        err_fluxVel_slit = np.sqrt(np.bincount(dig[selin],
+                                               weights=np.nan_to_num(fV_err**2).ravel()[selin]))
+        err_percentage_vel = err_fluxVel_slit / fluxVel_slit
         err_percentage_flux = err_flux_slit / flux_slit
 
-        self.dfV_tw_err = np.abs(self.dfV_tw) * np.sqrt(err_percentage_vel**2 + err_percentage_flux**2)
-        self.dfx_tw_err = np.abs(self.dfx_tw) * err_percentage_flux
-        self.Omsini_tw_err = self.Omsini_tw * np.sqrt((self.dfV_tw_err / self.dfV_tw)**2
-                                                    + (self.dfx_tw_err / self.dfx_tw)**2)
+        ds_slits.dfV_tw_err = np.abs(ds_slits.dfV_tw) * np.sqrt(err_percentage_vel**2
+                                                                + err_percentage_flux**2)
+        ds_slits.dfx_tw_err = np.abs(ds_slits.dfx_tw) * err_percentage_flux
+        ds_slits.Omsini_tw_err = ds_slits.Omsini_tw * np.sqrt((ds_slits.dfV_tw_err / ds_slits.dfV_tw)**2
+                                                              + (ds_slits.dfx_tw_err / ds_slits.dfx_tw)**2)
 
-#        # For a number of slits going from 0 to max
-#        for i, y in enumerate(self.y_slits):
-#            edges = [y - sw2, y + sw2]
-#            selY = (ds.Y_lon > edges[0]) & (ds.Y_lon < edges[1])
-#            self.df_tw[i] = np.nansum(ds.Flux[selY])
-#            if self.df_tw[i] != 0:
-#                self.dfV_tw[i] = np.nansum(fV[selY]) / self.df_tw[i]
-#                self.dfx_tw[i] = np.nansum(fx[selY]) / self.df_tw[i]
-#            else:
-#                self.dfV_tw[i] = 0.
-#                self.dfx_tw[i] = 0.
-#
-#            if self.dfx_tw[i] != 0:
-#                self.Omsini_tw[i] = self.dfV_tw[i] / self.dfx_tw[i]
-#            else:
-#                self.Omsini_tw[i] = 0.
+        self.add_slicing(ds_slits, ds.dataset_name)
+
+    def fit_slope_tw(self):
+        pass
+
+    def plot_tw(self, slicing_name=None, **kwargs):
+        show_tw(self, slicing_name, **kwargs)

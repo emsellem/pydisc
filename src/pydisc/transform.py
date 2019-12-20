@@ -10,7 +10,9 @@ from numpy import deg2rad, rad2deg, cos, sin, arctan, tan, pi
 from scipy.interpolate import griddata as gdata
 from scipy.ndimage.interpolation import rotate, affine_transform
 
-def mirror_grid(self, Xin, Yin) :
+from .misc_io import default_float
+
+def mirror_grid(self, X, Y) :
     """Find the mirrored grid (above/below major-axis)
 
     Input
@@ -21,15 +23,15 @@ def mirror_grid(self, Xin, Yin) :
     -------
     Xin -Yin
     """
-    return Xin, -Yin
+    return X, -Y
 
 # Rotating a set of X,Y
-def rotate_vectors(X=None, Y=None, matrix=np.identity(2)) :
+def rotate_vectors(X=None, Y=None, matrix=np.identity(2), ftype=default_float) :
     """Rotation of coordinates using an entry matrix
 
     Input
     -----
-    Xin, Yin: input grid (arrays)
+    X, Y: input grid (arrays)
     matrix : transformation matrix (matrix)
 
     Returns
@@ -37,7 +39,9 @@ def rotate_vectors(X=None, Y=None, matrix=np.identity(2)) :
     The rotated array
     """
     shape = X.shape
-    newX, newY = np.asarray(matrix * np.vstack((X.ravel(), Y.ravel())), dtype=float)
+    newX, newY = np.asarray(matrix *
+                            np.vstack((X.ravel(), Y.ravel())).astype(
+                                ftype))
     return newX.reshape(shape), newY.reshape(shape)
 
 # Setting up the rotation matrix
