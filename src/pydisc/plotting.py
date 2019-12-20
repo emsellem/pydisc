@@ -23,26 +23,47 @@ import matplotlib.gridspec as gridspec
 import cmocean
 
 
-def visualise_data(Xin, Yin, Zin, newextent=None, fill_value=np.nan, method='linear', verbose=False, newstep=None,
+def visualise_data(Xin, Yin, Zin, newextent=None,
+                   fill_value=np.nan, method='linear',
+                   verbose=False, newstep=None,
                    **kwargs):
-    """Visualise a data set via 3 input arrays, Xin, Yin and Zin. The shapes of these arrays should be the
-    same.
+    """Visualise a data set via 3 input arrays, Xin, Yin and Zin.
+    The shapes of these arrays should be the same.
 
     Input
     =====
     Xin, Yin, Zin: 3 real arrays
-    newextent : requested extent [xmin, xmax, ymin, ymax] for the visualisation. Default is None
+    newextent : requested extent [xmin, xmax, ymin, ymax]
+        for the visualisation. Default is None
     fill_value : Default is numpy.nan
     method : 'linear' as Default for the interpolation, when needed.
     """
-    extent, newX, newY, newZ = resample_data(Xin, Yin, Zin, newextent=newextent, newstep=newstep, fill_value=fill_value,
+    extent, newX, newY, newZ = resample_data(Xin, Yin, Zin,
+                                             newextent=newextent,
+                                             newstep=newstep,
+                                             fill_value=fill_value,
                                              method=method,
                                              verbose=verbose)
     plt.clf()
     plt.imshow(newZ, extent=extent, **kwargs)
     return extent, newX, newY, newZ
 
-def show_tw(disc, slicing_name=None, coef=4, vminV=-150, vmaxV=150, live=True):
+def show_tw(disc, slicing_name=None, coef=4,
+            vminV=-150, vmaxV=150, live=True):
+    """Makes an interactive plot of the results from
+    applying the Tremaine Weinberg method.
+
+    Args:
+        disc: DiscModel
+        slicing_name: str [None]
+        coef: int [4]
+        vminV: float [-150]
+        vmaxV: float [150]
+            Minimum and maximum of velocities for the
+            plot.
+        live: bool [True]
+
+    """
 
     # get the slicing
     slicing = disc._get_slicing(slicing_name)
@@ -93,7 +114,8 @@ def show_tw(disc, slicing_name=None, coef=4, vminV=-150, vmaxV=150, live=True):
         if mouseevent.xdata is None:
             return False, dict()
 
-        yslit = mouseevent.ydata * np.cos(alpha_rad) - mouseevent.xdata * np.sin(alpha_rad)
+        yslit = mouseevent.ydata * np.cos(alpha_rad) \
+                - mouseevent.xdata * np.sin(alpha_rad)
         # Finds the closest slit
         ind = np.abs(slicing.ycentres - yslit).argmin()
         if (yslit >= ycmin) and (yslit <= ycmax):
@@ -129,10 +151,12 @@ def show_tw(disc, slicing_name=None, coef=4, vminV=-150, vmaxV=150, live=True):
     # --------------------------------------------------------------
 
     # Plot with colour cycle
-    line1 = ax1.plot([[x0], [x1]], [y01[::coef,0], y01[::coef,1]], linewidth=1, picker=line_picker)
+    line1 = ax1.plot([[x0], [x1]], [y01[::coef,0], y01[::coef,1]],
+                     linewidth=1, picker=line_picker)
 
     # Create a reference slit which is hidden
-    refline = ax1.plot([[x0], [x1]], [y01[0,0], y01[0,1]], 'r-', linewidth=3, zorder=4)
+    refline = ax1.plot([[x0], [x1]], [y01[0,0], y01[0,1]],
+                       'r-', linewidth=3, zorder=4)
     refline[0].set_visible(False)
 
     # START of the x2 axis ---------------------
