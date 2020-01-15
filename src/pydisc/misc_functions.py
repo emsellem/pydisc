@@ -108,3 +108,4 @@ def fit_slope(X, Y, eX=None, eY=None):
     odr_data = RealData(X[good], Y[good], sx=eX_good, sy=eY_good)
     odr_run = ODR(odr_data, linear, beta0=[2, 0])
     return odr_run.run()
+

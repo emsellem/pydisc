@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Module for the data classes: datamap or profile
+Module for the data classes: DataMap or profile
 """
 
 # External modules
@@ -11,7 +11,7 @@ from numpy import deg2rad
 from .misc_io import add_suffix, default_float, add_err_prefix
 from . import check, transform
 
-class datamap(object):
+class DataMap(object):
     """Data class representing a specific map
 
     Attributes
@@ -41,10 +41,10 @@ class datamap(object):
         self.order = order
         self.name = name
 
-class dataset(object):
-    """A dataset is a set of values associated with a location grid (X, Y)
+class DataSet(object):
+    """A DataSet is a set of values associated with a location grid (X, Y)
     It is used to describe a set of e.g., velocity fields, flux maps, etc
-    A grid is associated natively to these datamaps as well as an orientation
+    A grid is associated natively to these DataMaps as well as an orientation
     on the sky.
     If no grid is provided, the grid is set to integer numbers (pixels).
 
@@ -64,7 +64,7 @@ class dataset(object):
     order: int [0]
         Order of the velocity moment. -1 for 'others' (e.g., X, Y)
     data_type: str ['']
-        Type of the dataset
+        Type of the DataSet
     flag: str [""]
         Flag for the data (e.g., 'CO', 'Ha')
     """
@@ -76,6 +76,8 @@ class dataset(object):
                 Input X axis location array
             Yin: numpy array [None]
                 Input Y axis location array
+            Xcen, Ycen: float, float
+                Centre for the X and Y axes. Default is the centre of the image.
             ref_shape: tuple [None]
                 Reference shape for the arrays. If provided, will be used to shape the
                 input arrays
@@ -130,7 +132,7 @@ class dataset(object):
         self.dataset_name = kwargs.pop("dataset_name", None)
 
         # Attaching the given dataset
-        self.attach_data(data, **kwargs)
+        self.attach_datamap(data, **kwargs)
         self.check_data()
 
     def _init_XY(self, Xin, Yin, nameX="X", nameY="Y"):
@@ -144,11 +146,11 @@ class dataset(object):
             nameY:
         """
         # Define the grid in case Xin, Yin not yet defined
-        # If it is the case, using the reference dataset
+        # If it is the case, using the reference DataSet
         if Xin is None or Yin is None:
             ref_ind = np.indices(self.shape, dtype=default_float)
-            if Xin is None: Xin = ref_ind[1] - self.Xcen
-            if Yin is None: Yin = ref_ind[0] - self.Ycen
+            if Xin is None: Xin = ref_ind[1]
+            if Yin is None: Yin = ref_ind[0]
 
         if not check._check_consistency_sizes([Xin, Yin]):
             print("ERROR: errors on sizes of Xin and Yin")
@@ -158,13 +160,14 @@ class dataset(object):
             Yin = Yin.reshape(self.shape)
             self._nameX = add_suffix(nameX, self.flag)
             self._nameY = add_suffix(nameY, self.flag)
-            self.Xin = Xin
-            self.Yin = Yin
-            self.XYin_extent = [np.min(Xin), np.max(Xin), np.min(Yin), np.max(Yin)]
+            self.Xin = Xin - self.Xcen
+            self.Yin = Yin - self.Ycen
+            self.XYin_extent = [np.min(self.Xin), np.max(self.Xin),
+                                np.min(self.Yin), np.max(self.Yin)]
             return True
 
-    def attach_data(self, data, order=0, edata=None, data_name="", data_attr_name=""):
-        """Attach a new datamap to the present dataset. Will check if
+    def attach_datamap(self, data, order=0, edata=None, data_name="", data_attr_name=""):
+        """Attach a new DataMap to the present DataSet. Will check if
         grid is compatible.
 
         Args:
@@ -185,8 +188,7 @@ class dataset(object):
         else:
             name_data_key = add_suffix(data_name, self.flag)
 
-        datamap_to_attach = datamap(data, edata, order, data_name)
-        self.datamaps[name_data_key] = datamap_to_attach
+        self.datamaps[name_data_key] = DataMap(data, edata, order, data_name)
         setattr(self, name_data_key, self.datamaps[name_data_key])
 
         setattr(self, data_attr_name, self.datamaps[name_data_key].data)
@@ -223,7 +225,7 @@ class dataset(object):
                 self.datamaps.pop(name)
                 continue
 
-            # Reshaping input dataset into the same shape
+            # Reshaping input DataSet into the same shape
             # And adding it to the dictionary
             self.datamaps[name].data = data.reshape(self.shape)
             self.datamaps[name].edata = edata.reshape(self.shape)
@@ -338,6 +340,24 @@ class dataset(object):
         X = kwargs.pop("X", self.Xin)
         Y = kwargs.pop("Y", self.Yin)
         return transform.rotate_vectors(X, Y, **kwargs)
+
+    def deproject_velocities(self, name_data_key):
+        """Deproject Velocity values by dividing by the sin(inclination)
+        """
+
+        if name_data_key in self.datamaps:
+            datamap = self.datamaps[name_data_key]
+            if datamap.order != 1:
+                print("ERROR: data are not order 1 velocities -- Aborting")
+                return
+            Vdep = transform.deproject_velocities(datamaps.data,
+                                                  self.inclin)
+            eVdep = transform.deproject_velocities(datamap.edata,
+                                                  self.inclin)
+            name_data = "{}_dep".format(datamaps.name)
+            self.datamaps[name_data_key_dep] = DataMap(Vdep, eVdep, 1, name_data)
+        else:
+            print("ERROR: no such data name in this DataSet")
 
 class Profile(object):
     def __init__(self):

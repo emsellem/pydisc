@@ -150,15 +150,15 @@ def deproject_frame(data, PA, inclination=90.0):
         Deprojected image
     """
 
-    # Reading the shape of the disk array
+    # Reading the shape of the disc array
     Ysize, Xsize = data.shape
 
     # Creating the new set of needed arrays
-    disk_dpj = np.zeros((Ysize + 1, Xsize + 1))
-    disk_rec = np.zeros_like(disk_dpj)
+    disc_dpj = np.zeros((Ysize + 1, Xsize + 1))
+    disc_rec = np.zeros_like(disc_dpj)
 
-    # Recentering the disk
-    disk_rec[:Ysize, :Xsize] = data[:, :]
+    # Recentering the disc
+    disc_rec[:Ysize, :Xsize] = data[:, :]
     print("Image to deproject has shape: %f, %f" % (Ysize, Xsize))
 
     # Phi in radians
@@ -168,16 +168,16 @@ def deproject_frame(data, PA, inclination=90.0):
                            [0.0, 1.0]])
 
     # Rotate Disk around theta
-    disk_rot = rotate(np.asarray(disk_rec), PA - 90., reshape=False)
+    disc_rot = rotate(np.asarray(disc_rec), PA - 90., reshape=False)
 
     # Deproject Image
     offy = Ysize / 2 - 1. - (Ysize / 2 - 1.) * np.cos(phi)
-    disk_dpj_c = affine_transform(disk_rot, dpj_matrix,
+    disc_dpj_c = affine_transform(disc_rot, dpj_matrix,
                                   offset=(offy, 0))[:Ysize, :Xsize]
 
-    return disk_dpj_c
+    return disc_dpj_c
 
-def deproject_velocities(V, inclin=90.):
+def deproject_velocity_profile(V, eV=None, inclin=90.):
     """
     Args:
         V: numpy array
@@ -189,5 +189,7 @@ def deproject_velocities(V, inclin=90.):
             Deprojected values for the velocities
     """
     if inclin == 0. :
-        return np.full(V.shape, np.inf)
-    return V / sin(np.deg2rad(inclin))
+        return np.full(V.shape, np.inf), np.full(V.shape, np.inf)
+    if eV is None:
+        eV = np.zeros_like(V)
+    return V / sin(np.deg2rad(inclin)), eV / sin(np.deg2rad(inclin))

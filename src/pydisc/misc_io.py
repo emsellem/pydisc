@@ -138,8 +138,7 @@ def extract_frame(fits_name, pixelsize=1., verbose=True):
         if verbose:
             print(("Opening the Input image: {0}".format(fits_name)))
         # --------Reading of fits-file for grav. pot----------
-        data = pyfits.getdata(fits_name)
-        h = pyfits.getheader(fits_name)
+        data, h = pyfits.getdata(fits_name, header=True)
         # -------------- Fits Header IR Image------------
         naxis1, naxis2 = h['NAXIS1'], h['NAXIS2']
         data = np.nan_to_num(data.reshape((naxis2, naxis1)))
@@ -229,7 +228,9 @@ def get_1d_radial_sampling(rmap, nbins):
 # ============================================================
 # -----------Create Radial Profile----------------------------
 # ============================================================
-def extract_radial_profile(rmap, data, nbins, verbose=True):
+def extract_radial_profile(rmap, data, nbins,
+                           thetamap=None, verbose=True, angle_wedge=0.0,
+                           wedge_size=0.0):
     """Extract a radial profile from input frame
     Input
     -----
@@ -239,8 +240,14 @@ def extract_radial_profile(rmap, data, nbins, verbose=True):
         Input data values.
     nbins: int
         Number of bins for the radial profile.
+    wedge_angle: float [0]
+        Position angle of the wedge to exclude
+    wedge_size: float [0]
+        Size of the wedge to exclude on each side
     verbose: bool
         Default is True (print information)
+    thetamap: 2D array
+        Map of theta values (in degrees)
 
     Returns
     -------
@@ -254,15 +261,24 @@ def extract_radial_profile(rmap, data, nbins, verbose=True):
         print("Deriving the radial profile ... \n")
 
     # First deriving the max and cutting it in nbins
-    rsamp, stepr = get_rsamp(rmap, nbins)
+    rsamp, stepr = get_1d_radial_sampling(rmap, nbins)
     rdata = np.zeros_like(rsamp)
+    if thetamap is None:
+        thetamap = np.ones_like(rmap)
+        wedge_size = 0.0
+    else:
+        thetamap -= wedge_angle
 
     # Filling in the values for y (only if there are some selected pixels)
     for i in range(len(rsamp) - 1):
-        sel = np.where((rmap >= rsamp[i]) & (rmap < rsamp[i + 1]))  ##== selecting an annulus between two bins
+        # Selecting an annulus between two radii and without a wedge
+        sel = np.where((rmap >= rsamp[i]) & (rmap < rsamp[i+1])
+                    & (((thetamap > wedge_size)
+                       & (thetamap < 180.0 - wedge_size))
+                    | ((thetamap > 180.0 + wedge_size)
+                       & (thetamap < 360. - wedge_size))))
         if len(sel) > 0:
             rdata[i] = np.mean(data[sel], axis=None)
 
     # Returning the obtained profile
     return rsamp, rdata
-

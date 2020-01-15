@@ -54,7 +54,7 @@ def show_tw(disc, slicing_name=None, coef=4,
     applying the Tremaine Weinberg method.
 
     Args:
-        disc: DiscModel
+        disc: GalacticDisc
         slicing_name: str [None]
         coef: int [4]
         vminV: float [-150]
