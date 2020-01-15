@@ -145,7 +145,7 @@ class GalacticDisc(Galaxy):
         nameY = read_mom_sattr(-1)[1]
         mydataset = DataSet(Xin, Yin, nameX=nameX, nameY=nameY,
                             ref_shape=ref_data_shape, comment=comment,
-                            dataset_name=dataset_name, flag=flag)
+                            dataset_name=dataset_name, flag=flag, **kwargs)
 
         # If we have now a proper DataSet with a shape
         # We can add all the provided data

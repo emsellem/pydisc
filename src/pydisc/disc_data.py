@@ -166,7 +166,8 @@ class DataSet(object):
                                 np.min(self.Yin), np.max(self.Yin)]
             return True
 
-    def attach_datamap(self, data, order=0, edata=None, data_name="", data_attr_name=""):
+    def attach_datamap(self, data, order=0, edata=None,
+                       data_name="", data_attr_name="", **kwargs):
         """Attach a new DataMap to the present DataSet. Will check if
         grid is compatible.
 
