@@ -186,7 +186,7 @@ class GalacticDisc(Galaxy):
                         break
 
         if hasattr(ds, datamap_name):
-            datamap = ds.datamap_name
+            datamap = getattr(ds, datamap_name)
         else:
             print("No such datamap {} in this dataset".format(
                datamap_name))
@@ -259,15 +259,11 @@ class GalacticDisc(Galaxy):
             print("Vc file successfully read")
         return status
 
-    def deproject_disc_map(self, dataset_name=None, datamap_name=None):
+    def deproject_nodes(self, dataset_name=None):
         """Deproject disc mass or flux
         """
-        ds, key_dm, dm = self._get_datamap(dataset_name, datamap_name, order=0)
-        if dm is None:
-            print("ERROR: maps not available")
-            return
-
-        ds[key_dm].data_dep = transform.deproject_frame(dm.data, PA=self.PA_nodes, inclination=self.inclin)
+        ds = self._get_dataset(dataset_name)
+        ds.deproject()
 
     def deproject_velocity_profile(self, dataset_name=None, datamap_name=None):
         """Deproject Velocity values by dividing by the sin(inclination)

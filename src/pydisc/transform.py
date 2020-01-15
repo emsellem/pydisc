@@ -152,14 +152,10 @@ def deproject_frame(data, PA, inclination=90.0):
 
     # Reading the shape of the disc array
     Ysize, Xsize = data.shape
+    print("Image to deproject has shape: {0:d}, {1:d}".format(Ysize, Xsize))
 
     # Creating the new set of needed arrays
-    disc_dpj = np.zeros((Ysize + 1, Xsize + 1))
-    disc_rec = np.zeros_like(disc_dpj)
-
-    # Recentering the disc
-    disc_rec[:Ysize, :Xsize] = data[:, :]
-    print("Image to deproject has shape: %f, %f" % (Ysize, Xsize))
+    disc_rec = np.zeros_like(data)
 
     # Phi in radians
     phi = np.deg2rad(inclination)

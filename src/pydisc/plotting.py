@@ -22,6 +22,7 @@ from matplotlib import pyplot as plt
 import matplotlib.gridspec as gridspec
 import cmocean
 
+from .misc_functions import clipping_to_rectangle
 
 def visualise_data(Xin, Yin, Zin, newextent=None,
                    fill_value=np.nan, method='linear',
@@ -92,15 +93,17 @@ def show_tw(disc, slicing_name=None, coef=4,
     ax1.set_prop_cycle(color=colour_plot)
 
     # Loop over the slices with 1 out of coef slits
-    x0, x1 = dataset.XYin_extent[0], dataset.XYin_extent[1]
-    nslits_scarce = len(slicing.ycentres[::coef])
     nslits = len(slicing.ycentres)
 
     # Get all the slits
-    alpha_rad = np.deg2rad(dataset._get_angle_from_PA(disc.PA_nodes))
-    # y01 will be the y coordinates for the slit
-    y01 = slicing.ycentres.reshape(nslits, 1) * np.cos(alpha_rad) \
-             + np.array([x0, x1]) * np.tan(alpha_rad)
+    pa = dataset._get_angle_from_PA(disc.PA_nodes)
+    alpha_rad = np.deg2rad(pa + 90.0)
+
+    # lines_inter will be the x, y coordinates for the slit
+    lines_inter = np.zeros((nslits, 2, 2))
+    for i in range(nslits):
+        lines_inter[i] = clipping_to_rectangle(slicing.ycentres[i], pa, extent=dataset.XYin_extent)
+
     ycmin, ycmax = np.min(slicing.yedges), np.max(slicing.yedges)
 
     # --------------------------------------------------------------
@@ -151,11 +154,13 @@ def show_tw(disc, slicing_name=None, coef=4,
     # --------------------------------------------------------------
 
     # Plot with colour cycle
-    line1 = ax1.plot([[x0], [x1]], [y01[::coef,0], y01[::coef,1]],
+    line1 = ax1.plot([lines_inter[::coef, 0, 0], lines_inter[::coef, 1, 0]],
+                     [lines_inter[::coef, 0, 1], lines_inter[::coef, 1, 1]],
                      linewidth=1, picker=line_picker)
 
     # Create a reference slit which is hidden
-    refline = ax1.plot([[x0], [x1]], [y01[0,0], y01[0,1]],
+    refline = ax1.plot([lines_inter[0, 0, 0], lines_inter[0, 1, 0]],
+                       [lines_inter[0, 0, 1], lines_inter[0, 1, 1]],
                        'r-', linewidth=3, zorder=4)
     refline[0].set_visible(False)
 
@@ -168,8 +173,8 @@ def show_tw(disc, slicing_name=None, coef=4,
                extent=dataset.XYin_extent)
 
     # Also plot on the axis line
-    y02 = np.array([x0, x1]) * np.tan(alpha_rad)
-    ax2.plot([x0, x1], [y02[0], y02[1]], 'k--', linewidth=2)
+    line_y0 = clipping_to_rectangle(0, pa, extent=dataset.XYin_extent)
+    ax2.plot([line_y0[0,0], line_y0[1,0]], [line_y0[0,1], line_y0[1,1]], 'k--', linewidth=2)
 
     # START of the 3rd plot with the scatter points
     ax3 = fig.add_subplot(gs[1, :])
@@ -182,7 +187,8 @@ def show_tw(disc, slicing_name=None, coef=4,
         print('Coordinate of closest point = ', event.pickx, event.picky)
 
     def update_refline(ind):
-        refline[0].set_ydata([y01[ind,0], y01[ind,1]])
+        refline[0].set_ydata([lines_inter[ind,0,1], lines_inter[ind,1,1]])
+        refline[0].set_xdata([lines_inter[ind, 0, 0], lines_inter[ind, 1, 0]])
 
     def update_point(x, y):
         scatref.set_offsets([[x, y]])

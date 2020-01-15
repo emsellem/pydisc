@@ -309,6 +309,12 @@ class DataSet(object):
         self._mat_lon_NE = galaxy._mat_lon * self._mat_NE
         self.X_lon, self.Y_lon = self.rotate(matrix=self._mat_lon_NE)
 
+    def deproject(self, galaxy):
+        """Deproject X,Y around the line of nodes using the inclination
+        """
+        self.X_londep, self.Y_londep = self.rotate(matrix=galaxy._mat_inc,
+                                             X=self.X_lon, Y=self.Y_lon)
+
     def align_xy_bar(self, galaxy) :
         """Set the bar (defined by its Position Angle, angle from the North
         going counter-clockwise) as the positive X axis
