@@ -11,6 +11,7 @@ __license__ = "mit"
 
 from .disc import GalacticDisc
 from .disc_data import Slicing
+from .misc_io import add_suffix
 
 class DensityWave(GalacticDisc):
     """
@@ -62,7 +63,8 @@ class DensityWave(GalacticDisc):
         ds.Vx = ds.Vr * cos(ds.gamma_rad) - ds.Vt * sin(ds.gamma_rad)
         ds.Vy = ds.Vr * sin(ds.gamma_rad) + ds.Vt * cos(ds.gamma_rad)
 
-    def tremaine_weinberg(self, slit_width=1.0, dataset_name=None):
+    def tremaine_weinberg(self, slit_width=1.0, dataset_name=None,
+                          flag=None, **kwargs):
         """ Apply the standard Tremaine Weinberg to the disc dataset.
 
         Using X_lon, Y_lon, Flux and Velocity
@@ -75,12 +77,19 @@ class DensityWave(GalacticDisc):
         ds = self._get_dataset(dataset_name)
         ds.align_xy_lineofnodes(self)
 
+        Iname = kwargs.pop("Iname", add_suffix("I", flag))
+        Vname = kwargs.pop("Vname", add_suffix("V", flag))
+
+        Flux = getattr(ds.datamaps, Iname).data
+        eFlux = getattr(ds.datamaps, Iname).edata
+        Vel = getattr(ds.datamaps, Vname).data
+        eVel = getattr(ds.datamaps, Vname).edata
         # Get Flux * Velocities
-        fV = ds.Flux * -ds.Vel
+        fV = Flux * -Vel
         # Get the Flux * X
-        fx = ds.Flux * ds.X_lon
+        fx = Flux * ds.X_lon
         # Get the errors
-        fV_err = fV * np.sqrt((ds.eFlux / ds.Flux)**2 + (ds.eVel / ds.Vel)**2)
+        fV_err = fV * np.sqrt((eFlux / Flux)**2 + (eVel / Vel)**2)
 
         ds_slits = Slicing(yin=ds.Y_lon, slit_width=slit_width)
         # Digitize the Y coordinates along the slits and minus 1 to be at the boundary
@@ -90,7 +99,7 @@ class DensityWave(GalacticDisc):
 
         # Then count them with the weights
         flux_slit = np.bincount(dig[selin],
-                                weights=np.nan_to_num(ds.Flux).ravel()[selin])
+                                weights=np.nan_to_num(Flux).ravel()[selin])
         fluxVel_slit = np.bincount(dig[selin],
                                    weights=np.nan_to_num(fV).ravel()[selin])
         fluxX_slit = np.bincount(dig[selin],
@@ -101,7 +110,7 @@ class DensityWave(GalacticDisc):
 
         # Calculate errors.
         err_flux_slit = np.sqrt(np.bincount(dig[selin],
-                                            weights=np.nan_to_num(ds.eFlux**2).ravel()[selin]))
+                                            weights=np.nan_to_num(eFlux**2).ravel()[selin]))
         err_fluxVel_slit = np.sqrt(np.bincount(dig[selin],
                                                weights=np.nan_to_num(fV_err**2).ravel()[selin]))
         err_percentage_vel = err_fluxVel_slit / fluxVel_slit
@@ -113,7 +122,7 @@ class DensityWave(GalacticDisc):
         ds_slits.Omsini_tw_err = ds_slits.Omsini_tw * np.sqrt((ds_slits.dfV_tw_err / ds_slits.dfV_tw)**2
                                                               + (ds_slits.dfx_tw_err / ds_slits.dfx_tw)**2)
 
-        self.add_slicing(ds_slits, ds.dataset_name)
+        self.add_slicing(ds_slits, ds.name)
 
     def fit_slope_tw(self):
         pass

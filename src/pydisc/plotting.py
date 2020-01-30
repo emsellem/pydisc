@@ -23,6 +23,7 @@ import matplotlib.gridspec as gridspec
 import cmocean
 
 from .misc_functions import clipping_to_rectangle
+from .misc_io import  add_suffix
 
 def visualise_data(Xin, Yin, Zin, newextent=None,
                    fill_value=np.nan, method='linear',
@@ -50,7 +51,8 @@ def visualise_data(Xin, Yin, Zin, newextent=None,
     return extent, newX, newY, newZ
 
 def show_tw(disc, slicing_name=None, coef=4,
-            vminV=-150, vmaxV=150, live=True):
+            vminV=-150, vmaxV=150, live=True,
+            flag=None, **kwargs):
     """Makes an interactive plot of the results from
     applying the Tremaine Weinberg method.
 
@@ -71,9 +73,13 @@ def show_tw(disc, slicing_name=None, coef=4,
     dataset = disc._get_dataset(slicing_name)
 
     # Set up colourbar limits for the image
-    sel_flux = (dataset.Flux != 0)
-    vminF = np.nanpercentile(np.log10(dataset.Flux[sel_flux]), 0.5)
-    vmaxF = np.nanpercentile(np.log10(dataset.Flux[sel_flux]), 99.75)
+    Iname = kwargs.pop("Iname", add_suffix("I", flag))
+    Vname = kwargs.pop("Vname", add_suffix("V", flag))
+    Flux = getattr(dataset.datamaps, Iname).data
+    Vel = getattr(dataset.datamaps, Vname).data
+    sel_flux = (Flux != 0)
+    vminF = np.nanpercentile(np.log10(Flux[sel_flux]), 0.5)
+    vmaxF = np.nanpercentile(np.log10(Flux[sel_flux]), 99.75)
 
     # Starting the figure
     fig = plt.figure(figsize=(6, 6), tight_layout=True)
@@ -81,7 +87,7 @@ def show_tw(disc, slicing_name=None, coef=4,
 
     # START of the x2 axis ---------------------
     ax1 = fig.add_subplot(gs[0,0])
-    ax1.imshow(np.log10(dataset.Flux),
+    ax1.imshow(np.log10(Flux),
                cmap=cmocean.cm.gray_r,
                origin='lower', interpolation='none',
                vmin=vminF, vmax=vmaxF,
@@ -166,7 +172,7 @@ def show_tw(disc, slicing_name=None, coef=4,
 
     # START of the x2 axis ---------------------
     ax2 = fig.add_subplot(gs[0,1])
-    ax2.imshow(dataset.Vel,
+    ax2.imshow(Vel,
                cmap=cmocean.cm.balance,
                origin='lower', interpolation='none',
                vmin=vminV, vmax=vmaxV,

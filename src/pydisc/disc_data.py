@@ -9,7 +9,11 @@ from numpy import deg2rad
 
 # Float
 from .misc_io import add_suffix, default_float, add_err_prefix
+from .misc_io import AttrDict, remove_suffix
+from .misc_io import default_suffix_separator, default_prefix_separator
 from . import check, transform
+
+default_data_names = ["data", "edata"]
 
 class DataMap(object):
     """Data class representing a specific map
@@ -20,9 +24,8 @@ class DataMap(object):
     edata
     order
     name
-    flag
     """
-    def __init__(self, data, edata=None, order=0, name=""):
+    def __init__(self, data, edata=None, order=0, name=None, flag=None, type=""):
         """
         Args:
             data: numpy array
@@ -31,15 +34,48 @@ class DataMap(object):
                 Uncertainties for the data.
             order: int [0]
                 order of the velocity moment. Can be -1 for 'others' (grid)
-            name: str ['']
-                Name of the attribute
-            flag: str ['']
-                Name to flag the map (e.g., 'CO', 'Ha')
+            name: str [None]
+                Name of the map.
+            flag: str [None]
+            type: str [""]
         """
         self.data = data
         self.edata = edata
         self.order = order
         self.name = name
+        self.flag = flag
+        self.type = type
+
+    def add_transformed_data(self, data, edata=None, suffix=""):
+        """Add a transformed map - e.g, deprojected - using a suffix
+
+        Args:
+            data:
+            edata:
+            suffix:
+
+        Returns:
+
+        """
+        if suffix == "" or suffix is None:
+            print("[add_transformed_data] Failed to add data, suffix is empty")
+            return
+        new_data_attr = add_suffix("data", suffix)
+        setattr(self, new_data_attr, data)
+        new_edata_attr = add_err_prefix(new_data_attr)
+        setattr(self, new_edata_attr, edata)
+
+    def deproject_velocities(self, inclin=90.0):
+        """Deproject Velocity map and add it
+        """
+
+        if self.order != 1:
+            print("ERROR: data are not of order 1 [velocities] -- Aborting")
+            return
+        Vdep, eVdep = transform.deproject_velocities(self.data,
+                                                     self.edata,
+                                                     inclin)
+        self.add_transformed_data(Vdep, eVdep, "dep")
 
 class DataSet(object):
     """A DataSet is a set of values associated with a location grid (X, Y)
@@ -63,13 +99,9 @@ class DataSet(object):
         Uncertainties
     order: int [0]
         Order of the velocity moment. -1 for 'others' (e.g., X, Y)
-    data_type: str ['']
-        Type of the DataSet
-    flag: str [""]
-        Flag for the data (e.g., 'CO', 'Ha')
     """
     def __init__(self, Xin=None, Yin=None, ref_shape=None,
-                 nameX="X", nameY="Y", **kwargs):
+                 name=None, nameX="X", nameY="Y", **kwargs):
         """
         Args:
             Xin: numpy array [None]
@@ -81,24 +113,32 @@ class DataSet(object):
             ref_shape: tuple [None]
                 Reference shape for the arrays. If provided, will be used to shape the
                 input arrays
+            name: str [None]
+                Name of the dataset
             nameX: str ["X"]
-                Name for the X coordinate. The flag will be used as suffix.
+                Name for the X coordinate.
             nameY: str ["Y"]
-                Name for the X coordinate. The flag will be used as suffix.
+                Name for the X coordinate.
 
             **kwargs:
-                flag: str ['']
-                    Flag for the data
-                data
-                order
-                edata
-                data_name
-                data_attr_name
-                edata_attr_name
+                data: array
+                edata: array [None]
+                    Uncertainty map
+                map_name: str
+                    Name of the map
+                map_type: str
+                    Type of the map
+                map_flag: str
+                    Flag for the map
+                order: int
+                    Order for the datamap
+                comment: str [""]
+                    Comment attached to the dataset
         """
         # Empty dictionary for the moments
-        self.datamaps = {}
-        self.flag = kwargs.pop("flag", None)
+        self.datamaps = AttrDict()
+
+        # See if a datamap is provided
         data = kwargs.pop("data", None)
 
         # First getting the shape of the data
@@ -129,11 +169,25 @@ class DataSet(object):
 
         # Comment
         self.comment = kwargs.pop("comment", "")
-        self.dataset_name = kwargs.pop("dataset_name", None)
+        self.name = name
 
-        # Attaching the given dataset
-        self.attach_datamap(data, **kwargs)
-        self.check_data()
+        # Attaching a given datamap
+        if data is not None:
+            self.attach_datamap(data, **kwargs)
+            self.check_datamap()
+
+    def __getattr__(self, name):
+        for suffix in default_data_names:
+            if name.startswith(suffix):
+                for mapname in self.datamaps.keys():
+                    if mapname in name:
+                        basename = remove_suffix(name, mapname)
+                        return getattr(self.datamaps[mapname], basename)
+
+    def __dir__(self, list_names=default_data_names):
+        return  [add_suffix(attr, map) for item in list_names
+                for map in self.datamaps.keys() for attr in self.datamaps[map].__dir__()
+                if attr.startswith(item)]
 
     def _init_XY(self, Xin, Yin, nameX="X", nameY="Y"):
         """Initialise Xin and Yin
@@ -158,44 +212,49 @@ class DataSet(object):
         else:
             # Making sure the shapes agree
             Yin = Yin.reshape(self.shape)
-            self._nameX = add_suffix(nameX, self.flag)
-            self._nameY = add_suffix(nameY, self.flag)
+            self._nameX = nameX
+            self._nameY = nameY
             self.Xin = Xin - self.Xcen
             self.Yin = Yin - self.Ycen
             self.XYin_extent = [np.min(self.Xin), np.max(self.Xin),
                                 np.min(self.Yin), np.max(self.Yin)]
             return True
 
+    def _has_datamap(self, name):
+        return name in self.datamaps.keys()
+
     def attach_datamap(self, data, order=0, edata=None,
-                       data_name="", data_attr_name="", **kwargs):
+                       map_name=None, map_flag=None, map_type=None,
+                       overwrite=False):
         """Attach a new DataMap to the present DataSet. Will check if
         grid is compatible.
 
         Args:
-            data:
-            order:
-            edata:
-            data_name:
+            data: 2d array
+            order: int
+            edata: 2d array
+            map_name: str
+            map_type: str
+            map_flag: str
 
         """
         if data is None:
             return
 
         # Input name to define the data. If none, define using the counter
-        if data_name is None:
-            data_name = "data{0:02d}".format(len(self.datamaps)+1)
-        if self.flag is None:
-            name_data_key = data_name
-        else:
-            name_data_key = add_suffix(data_name, self.flag)
+        if map_name is None:
+            map_name = "map{0:02d}".format(len(self.datamaps)+1)
 
-        self.datamaps[name_data_key] = DataMap(data, edata, order, data_name)
-        setattr(self, name_data_key, self.datamaps[name_data_key])
+        if self._has_datamap(map_name) and not overwrite:
+            print("WARNING: data map {} already exists - Aborting".format(
+                    map_name))
+            print("WARNING: use overwrite option to force.")
+            return
 
-        setattr(self, data_attr_name, self.datamaps[name_data_key].data)
-        setattr(self, add_err_prefix(data_attr_name), self.datamaps[name_data_key].edata)
+        self.datamaps[map_name] = DataMap(data, edata, order,
+                                          map_name, map_flag, map_type)
 
-    def check_data(self, name_datamap="all"):
+    def check_datamap(self, name_datamap="all"):
         """Check consistency of data
         """
         if name_datamap == "all":
@@ -231,12 +290,12 @@ class DataSet(object):
             self.datamaps[name].data = data.reshape(self.shape)
             self.datamaps[name].edata = edata.reshape(self.shape)
 
-    def align_axes(self):
+    def align_axes(self, galaxy):
         """Align all axes using Xin and Yin as input
         """
-        self.align_xy_lineofnodes()
-        self.align_xy_bar()
-        self.align_xy_deproj_bar()
+        self.align_xy_lineofnodes(galaxy)
+        self.align_xy_bar(galaxy)
+        self.align_xy_deproj_bar(galaxy)
 
     @property
     def Xin(self):
@@ -348,27 +407,246 @@ class DataSet(object):
         Y = kwargs.pop("Y", self.Yin)
         return transform.rotate_vectors(X, Y, **kwargs)
 
-    def deproject_velocities(self, name_data_key):
-        """Deproject Velocity values by dividing by the sin(inclination)
+    def deproject_velocities(self, map_name, inclin=90.0):
+        """Deproject Velocity map if it exists
+
+        Parameters
+        ----------
+        map_name: str
+            Name of the map to deproject
+        inclin: float [90]
+            Inclination in degrees
         """
 
-        if name_data_key in self.datamaps:
-            datamap = self.datamaps[name_data_key]
-            if datamap.order != 1:
-                print("ERROR: data are not order 1 velocities -- Aborting")
-                return
-            Vdep = transform.deproject_velocities(datamaps.data,
-                                                  self.inclin)
-            eVdep = transform.deproject_velocities(datamap.edata,
-                                                  self.inclin)
-            name_data = "{}_dep".format(datamaps.name)
-            self.datamaps[name_data_key_dep] = DataMap(Vdep, eVdep, 1, name_data)
+        if map_name in self.datamaps:
+            self.datamaps[map_name].deproject_velocities(inclin=inclin)
         else:
             print("ERROR: no such data name in this DataSet")
 
-class Profile(object):
-    def __init__(self):
-        pass
+
+class DataSet1D(object):
+    """A DataSet1D is a set of Profiles associated via the same R profile.
+    It is used to describe radial profiles e.g., rotation curves.
+
+    Attributes
+    ----------
+    Rin: numpy array [None]
+        Input location radii
+    data: numpy array [None]
+        Input values
+    edata: numpy array [None]
+        Uncertainties
+    order: int [0]
+        Order of the velocity moment. -1 for 'others' (e.g., X, Y)
+    """
+    def __init__(self, Rin=None, ref_size=None,
+                 name=None, **kwargs):
+        """
+        Args:
+            Rin: numpy array [None]
+                Input R axis location array
+            name: str [None]
+                Name of the dataset1d
+
+            **kwargs:
+                data: array
+                edata: array [None]
+                    Uncertainty profile
+                prof_name: str
+                    Name of the profile
+                prof_type: str
+                    Type of the profile
+                prof_flag: str
+                    Flag for the profile
+                order: int
+                    Order for the profile
+                comment: str [""]
+                    Comment attached to the dataset1d
+        """
+        # Empty dictionary for the moments
+        self.profiles = AttrDict()
+
+        # See if a datamap is provided
+        data = kwargs.pop("data", None)
+
+        # First getting the shape of the data
+        if ref_size is not None:
+            self.size = ref_size
+        elif Rin is not None:
+            self.size = Rin.size
+        elif data is not None:
+            self.size = data.size
+
+        self._init_R(Rin)
+
+        # Filling value
+        self._fill_value = kwargs.pop("fill_value", 'nan')
+        # Method
+        self._method = kwargs.pop("method", "linear")
+
+        # Comment
+        self.comment = kwargs.pop("comment", "")
+        self.name = name
+
+        # New step in R when provided
+        Rfinestep = kwargs.pop("Rfinestep", 0)
+
+        # Attaching a given datamap
+        if data is not None:
+            self.attach_profile(data, **kwargs)
+            self.check_profiles()
+
+        if Rfinestep > 0:
+            self.interpolate(newstep=Rfinestep)
+
+    def _init_R(self, Rin):
+        """Initialise Rin
+
+        Args:
+            Rin: numpy array
+            nameR:
+        """
+        # Define the grid in case Rin
+        # If it is the case, using the reference profile
+        if Rin is None:
+            self.Rin = np.arange(self.size, dtype=default_float)
+        else:
+            self.Rin = Rin.ravel()
+
+    def _has_profile(self, name):
+        return name in self.profiles.keys()
+
+    def attach_profile(self, data, order=0, edata=None,
+                       prof_name=None, prof_flag=None, prof_type=None,
+                       overwrite=False):
+        """Attach a new Profile to the present Set.
+
+        Args:
+            data: 1d array
+            order: int
+            edata: 1d array
+            prof_name: str
+            prof_type: str
+            prof_flag: str
+
+        """
+        if data is None:
+            return
+
+        # Input name to define the data. If none, define using the counter
+        if prof_name is None:
+            prof_name = "prof{0:02d}".format(len(self.profiles)+1)
+
+        if self._has_profile(prof_name) and not overwrite:
+            print("WARNING: data profile {} already exists - Aborting".format(
+                profile_name))
+            print("WARNING: use overwrite option to force.")
+            return
+
+        self.profiles[prof_name] = DataProfile(data, edata, order=order,
+                                               name=prof_name, flag=prof_flag,
+                                               type=prof_type)
+        setattr(self, prof_name, self.profiles[prof_name])
+
+    def __getattr__(self, name):
+        for suffix in default_data_names:
+            if name.startswith(suffix):
+                for profname in self.profiles.keys():
+                    if profname in name:
+                        basename = remove_suffix(name, profname)
+                        return getattr(self.profiles[profname], basename)
+
+    def __dir__(self, list_names=default_data_names):
+        return  [add_suffix(attr, prof) for item in list_names
+                for prof in self.profiles.keys() for attr in self.profiles[prof].__dir__()
+                if attr.startswith(item)]
+
+    def check_profiles(self, name_profile="all"):
+        """Check consistency of data
+        """
+        if name_profile == "all":
+            list_profiles = list(self.profiles.keys())
+        else:
+            list_profiles = [name_profile]
+
+        # Putting everything in 1D
+        ref_array = self.Rin
+
+        # Main loop on the names of the datamaps
+        for name in list_profiles:
+            data = self.profiles[name].data
+            edata = self.profiles[name].edata
+            arrays_to_check = [data.ravel()]
+            if edata is not None:
+                arrays_to_check.append(edata.ravel())
+            if not check._check_ifarrays(arrays_to_check):
+                print("ERROR: input profiles {} not all arrays".format(
+                    name))
+                self.profiles.pop(name)
+                continue
+
+            arrays_to_check.insert(0, ref_array)
+            if not check._check_consistency_sizes(arrays_to_check):
+                print("ERROR: input profiles {} have not the same size "
+                      "than input grid (Rin)".format(name))
+                self.profiles.pop(name)
+                continue
+
+    def interpolate(self, step=1.0, suffix="fine", overwrite=False):
+        """Provide interpolated profile
+
+        Args:
+            stepR: float [1.0]
+            suffix: str [""]
+            overwrite: bool [False]
+
+        Returns:
+
+        """
+        if step <= 0:
+            print("ERROR[interpolate]: new step is <= 0 - Aborting")
+        # Getting the data
+        if self.data is None:
+            print("ERROR[interpolate]: input data is None - Aborting")
+            return
+
+        if hasattr(self, add_suffix("R", suffix)):
+            if overwrite:
+                print("WARNING: overwriting existing interpolated profile")
+            else:
+                print("ERROR[interpolate]: interpolated profile exists. "
+                      "Use 'overwrite' to update.")
+                return
+
+        Rfine, dfine, edfine = transform.interpolate_profile(self.Rin,
+                                                             self.data,
+                                                             self.edata,
+                                                             step=step)
+        setattr(self, add_suffix("R", suffix), Rfine)
+        setattr(self, add_suffix("data", suffix), dfine)
+        setattr(self, add_suffix("edata", suffix), edfine)
+
+class DataProfile(DataMap):
+    def __init__(self, data, edata=None, **kwargs):
+        """Create a profile class with some data and errors.
+
+        Args:
+            data:
+            edata:
+            **kwargs: (see DataMap)
+                order: int
+                name: str
+                flag: str
+                type: ""
+        """
+        # Using DataMap class attributes
+        super().__init__(data=data, edata=edata, **kwargs)
+
+        # Now 1D in case the input is 2D
+        if data is not None:
+            self.data = self.data.ravel()
+        if edata is not None:
+            self.edata = self.edata.ravel()
 
 class Slicing(object):
     """Provides a way to slice a 2D field. This class just

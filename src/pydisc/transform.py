@@ -26,7 +26,8 @@ def mirror_grid(self, X, Y) :
     return X, -Y
 
 # Rotating a set of X,Y
-def rotate_vectors(X=None, Y=None, matrix=np.identity(2), ftype=default_float) :
+def rotate_vectors(X=None, Y=None, matrix=np.identity(2), ftype=default_float,
+                   origin=[0,0]) :
     """Rotation of coordinates using an entry matrix
 
     Input
@@ -39,10 +40,11 @@ def rotate_vectors(X=None, Y=None, matrix=np.identity(2), ftype=default_float) :
     The rotated array
     """
     shape = X.shape
-    newX, newY = np.asarray(matrix *
-                            np.vstack((X.ravel(), Y.ravel())).astype(
+    newX, newY = np.asarray(matrix @
+                            np.vstack((X.ravel() - origin[0],
+                                       Y.ravel() - origin[1])).astype(
                                 ftype))
-    return newX.reshape(shape), newY.reshape(shape)
+    return (newX+origin[0]).reshape(shape), (newY+origin[1]).reshape(shape)
 
 # Setting up the rotation matrix
 def set_rotmatrix(angle=0.0) :
@@ -58,7 +60,6 @@ def set_rotmatrix(angle=0.0) :
     """
     cosa, sina = cos(angle), sin(angle)
     return np.matrix([[cosa, sina],[-sina, cosa]])
-
 
 # --------------------------------------------------
 # Functions to provide reference matrices
@@ -173,7 +174,7 @@ def deproject_frame(data, PA, inclination=90.0):
 
     return disc_dpj_c
 
-def deproject_velocity_profile(V, eV=None, inclin=90.):
+def deproject_velocities(V, eV=None, inclin=90.):
     """
     Args:
         V: numpy array
@@ -189,3 +190,31 @@ def deproject_velocity_profile(V, eV=None, inclin=90.):
     if eV is None:
         eV = np.zeros_like(V)
     return V / sin(np.deg2rad(inclin)), eV / sin(np.deg2rad(inclin))
+
+def interpolate_profile(x, data, edata=None, step=1.0):
+    """Interpolate from a 1d profile
+
+    Args:
+        x:
+        data:
+        edata:
+
+    Returns:
+
+    """
+    # New radii
+    xmax = np.max(x, axis=None)
+    xmin = np.min(x, axis=None)
+    xfine = np.arange(xmin, xmax, step)
+
+    # Spline interpolation for data
+    coeff_spline = scipy.interpolate.splrep(x, data, k=1)
+    dfine = scipy.interpolate.splev(xfine, coeff_spline)
+
+    # Spline interpolation for edata
+    if edata is None:
+        edfine = None
+    else:
+        coeff_espline = scipy.interpolate.splrep(x, edata, k=1)
+        edfine = scipy.interpolate.splev(xfine, coeff_espline)
+    return xfine, dfine, edfine

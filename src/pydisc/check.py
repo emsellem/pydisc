@@ -93,4 +93,8 @@ def _check_ifnD(list_arrays, ndim=1) :
     if len(list_arrays) == 0 :
         return True
 
+    if np.any(myarray is None for myarray in list_arrays):
+        print("WARNING: one of the provided arrays is None")
+        return False
+
     return all(np.ndim(myarray) == ndim for myarray in list_arrays)

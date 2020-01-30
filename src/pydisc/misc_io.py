@@ -3,36 +3,113 @@
 This is a file with misc I/0 functions helping to open velocity and image
 files.
 """
-import numpy as np
 import os
+
+import numpy as np
+import scipy
 
 __author__ = "Eric Emsellem"
 __copyright__ = "Eric Emsellem"
 __license__ = "mit"
 
 default_float = np.float32
+default_suffix_separator = "_"
+default_prefix_separator = ""
+
+class AttrDict(dict):
+    """New Dictionary which adds the attributes using
+    the items as names
+    """
+    def __getattr__(self, item):
+        return self[item]
+
+    def __dir__(self):
+        return super().__dir__() + [str(k) for k in self.keys()]
 
 # adding prefix
-def add_prefix(name, prefix=None, link=""):
+def add_prefix(name, prefix=None, link=default_prefix_separator):
+    """Add prefix to name
+
+    Args:
+        name:
+        prefix:
+        link:
+
+    Returns:
+        new name with prefix
+    """
     if prefix is None:
         return name
     else:
         return "{0}{1}{2}".format(prefix, link, name)
 
+# remove prefix
+def remove_prefix(name, prefix=None, link=default_prefix_separator):
+    """Remove prefix to name
+
+    Args:
+        name:
+        prefix:
+        link:
+
+    Returns:
+        new name without prefix if it exists
+    """
+    if prefix is None or not name.startswith(prefix+link):
+        return name
+    else:
+        return name.replace(prefix+link, "")
+
 # adding suffix
-def add_suffix(name, suffix=None, link="_"):
+def add_suffix(name, suffix=None, link=default_suffix_separator):
+    """Add suffix to name
+
+    Args:
+        name:
+        suffix:
+        link:
+
+    Returns:
+        new name with suffix
+    """
     if suffix is None:
         return name
     else:
         return "{0}{1}{2}".format(name, link, suffix)
 
+# remove suffix
+def remove_suffix(name, suffix=None, link=default_suffix_separator):
+    """Remove suffix to name
+
+    Args:
+        name:
+        suffix:
+        link:
+
+    Returns:
+        new name without suffix
+    """
+    if suffix is None or not name.endswith(link+suffix):
+        return name
+    else:
+        return name.replace(link+suffix, "")
+
 # Add suffix for error attributes
-def add_err_prefix(name):
-    return add_prefix(name, "e", "")
+def add_err_prefix(name, link=default_prefix_separator):
+    """Add error (e) prefix to name
+
+    Args
+        name: str
+
+    Returns
+        name with error prefix
+    """
+    return add_prefix(name, "e", link=link)
+
 #========================================
 # Reading the Circular Velocity from file
 #========================================
-def read_vcirc_file(filename, Vcfile_type="ROTCUR", finestepR=1.0):
+def read_vc_file(filename, Vcfile_type="ROTCUR"):
     """Read a circular velocity ascii file. File can be of
     type ROTCUR (comments are '!') or ASCII (comments are '#')
 
@@ -42,8 +119,6 @@ def read_vcirc_file(filename, Vcfile_type="ROTCUR", finestepR=1.0):
         name of the file.
     Vcfile_type: str ['ROTCUR']
         'ROTCUR' or 'ASCII'.
-    finestepR: float [1.0]
-        Step in radius to interpolate profile
 
     Returns
     -------
@@ -56,16 +131,12 @@ def read_vcirc_file(filename, Vcfile_type="ROTCUR", finestepR=1.0):
         Circular velocity as read for radius
     eVc: float array
         Uncertainty on Circular velocity
-    rfine: float array
-        Range of radii with finestepR
-    Vcfine: float array:
-        Interpolated circular velocity in rfine
     """
 
     dic_comments = {"ROTCUR": "!", "ASCII": "#"}
 
     # Setting up a few values to 0
-    radius = Vc = eVc = rfine = Vcfine = 0.
+    radius = Vc = eVc = 0.
 
     # Testing the existence of the file
     if not os.path.isfile(filename):
@@ -90,19 +161,12 @@ def read_vcirc_file(filename, Vcfile_type="ROTCUR", finestepR=1.0):
             # now - ASCII
             elif Vcfile_type.upper() == "ASCII":
                 radius = Vcdata[0]
-                Vc = Vcdata[1][selV]
+                Vc = Vcdata[1]
                 eVc = np.zeros_like(Vc)
 
-            # --- New radius range with fine step in R
-            rmax = np.max(radius, axis=None)
-            rfine = np.arange(0., rmax, finestepR)
-
-            # Spline interpolation for Vc
-            coeff_spline = scipy.interpolate.splrep(radius, Vc, k=1)
-            Vcfine = scipy.interpolate.splev(rfine, coeff_spline)
             status = 0
 
-    return status, radius, Vc, eVc, rfine, Vcfine
+    return status, radius, Vc, eVc
 
 #============================================================
 # ----- Extracting the header and data array ------------------
