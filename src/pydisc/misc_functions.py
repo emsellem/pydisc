@@ -8,6 +8,9 @@ and to help with deprojection
 import numpy as np
 from scipy.odr import Model, ODR, RealData
 
+# Default cosmology
+from astropy.cosmology import WMAP9
+
 #==========================
 #  Test to stop program
 #==========================
@@ -36,10 +39,26 @@ def sech(z):
     """
     return 1. / np.cosh(z)
 
+#==========================
+#  Sech2 Function
+#==========================
+def sech2(z):
+    """Sech2 function using numpy.cosh
+
+    Input
+    -----
+    z: float
+
+    Returns
+    -------
+    float - Sech2(z)
+    """
+    return 1. / (np.cosh(z))**2
+
 #===========================
 # Get the proper scale
 #===========================
-def get_pc_per_arcsec(distance, cosmo=None):
+def get_pc_per_arcsec(distance, cosmo=WMAP9):
     """
 
     Args:

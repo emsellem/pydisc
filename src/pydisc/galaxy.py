@@ -7,8 +7,9 @@ This module include computation for torques, Tremaine-Weinberg
 method, in-plane velocities (Maciejewski et al. method).
 """
 
-import numpy as np
 from numpy import deg2rad, rad2deg, cos, sin, arctan, tan, pi
+from astropy import units as u
+from . import local_units as lu
 
 from . import transform, misc_functions
 
@@ -32,15 +33,29 @@ class Galaxy(object):
                 PA_bar
         """
 
+        # Distance in Mpc
         self.distance = kwargs.pop('distance', 10.)
-        self.pc_per_arcsec = misc_functions.get_pc_per_arcsec(self.distance)
-
         # Inclination in degrees
         self.inclin = kwargs.pop("inclination", 60.)
         # PA of the line of nodes
         self.PA_nodes = kwargs.pop("PA_nodes", 0.)
         # PA of the bar
         self.PA_bar = kwargs.pop("PA_bar", 0.)
+
+    @property
+    def pc_per_arcsec(self):
+        """Return the scale pc per arcsecond"""
+        return misc_functions.get_pc_per_arcsec(self.distance)
+
+    @property
+    def _eq_pc_per_arcsec(self):
+        return [(u.pc, u.arcsec,
+                 lambda x: self.pc_per_arcsec * x,
+                 lambda x: x / self.pc_per_arcsec)]
+
+    def convert_xyunit(self, xyunit, newunit=u.kpc):
+        return lu.get_conversion_factor(xyunit, newunit,
+                                        equiv=self._eq_pc_per_arcsec)
 
     @property
     def inclin(self) :

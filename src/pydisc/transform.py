@@ -98,23 +98,20 @@ def set_reverseYmatrix() :
     """
     return set_stretchmatrix(1.0, -1.0)
 
-# --------------------------------------------------
-# Resampling the data and visualisation
-# --------------------------------------------------
-def resample_data(Xin, Yin, Zin, newextent=None, newstep=None, fill_value=np.nan, method='linear', verbose=False) :
-    """Resample input data from an irregular grid
-    First it derives the limits, then guess the step it should use (if not provided)
-    and finally resample using griddata (scipy version).
+def regrid_XY(Xin, Yin, newextent=None, newstep=None):
+    """Regrid a set of X,Y input from an irregular grid
+    First it derives the limits, then guess the
+    step it should use (if not provided)
 
-    The function spits out the extent, and the new grid and interpolated values
+    The function spits out the extent, and the new grid
     """
 
     # First test consistency
-    test, [Xin, Yin, Zin] = _check_allconsistency_sizes([Xin, Yin, Zin])
+    test, [Xin, Yin] = _check_allconsistency_sizes([Xin, Yin])
     if not test :
         if verbose:
-            print("Warning: error in resample_data, not all array size are the same")
-        return None, None, None, 0
+            print("Warning: not all array size are the same")
+        return None, None, None
 
     # Get the step and extent
     if newstep is None :
@@ -125,10 +122,45 @@ def resample_data(Xin, Yin, Zin, newextent=None, newstep=None, fill_value=np.nan
 
     dX, dY = Xmax - Xmin, Ymax - Ymin
     nX, nY = np.int(dX / newstep + 1), np.int(dY / newstep + 1)
-    Xnewgrid, Ynewgrid = np.meshgrid(np.linspace(Xmin, Xmax, nX), np.linspace(Ymin, Ymax, nY))
-    newZ = gdata(np.vstack((Xin, Yin)).T, Zin, np.vstack((Xnewgrid.ravel(), Ynewgrid.ravel())).T,
-            fill_value=fill_value, method=method)
-    return newextent, Xnewgrid, Ynewgrid, newZ.reshape(Xnewgrid.shape)
+    Xnewgrid, Ynewgrid = np.meshgrid(np.linspace(Xmin, Xmax, nX),
+                                     np.linspace(Ymin, Ymax, nY))
+    return newextent, Xnewgrid, Ynewgrid
+# --------------------------------------------------
+# Resampling X, Y and Z (first regrid X, Y)
+# --------------------------------------------------
+def regrid_XYZ(Xin, Yin, Zin, newextent=None, newstep=None,
+                  fill_value=np.nan, method='linear') :
+    """Resample input data from an irregular grid
+    First it derives the limits, then guess the
+    step it should use (if not provided)
+    and finally resample using griddata (scipy version).
+
+    The function spits out the extent, and the new
+    grid and interpolated values
+    """
+
+    newextent, newX, newY = regrid_XY(Xin, Yin, newextent, newstep)
+    newZ = regrid_Z(Xin, Yin, Zin, newX, newY,
+                    fill_value=fill_value, method=method)
+    return newextent, newX, newY, newZ
+
+# --------------------------------------------------
+# Resampling Z according to input X, Y
+# --------------------------------------------------
+def regrid_Z(Xin, Yin, Zin, newX, newY, fill_value=np.nan, method='linear') :
+    """Resample input data from an irregular grid
+    First it derives the limits, then guess the step
+    it should use (if not provided)
+    and finally resample using griddata (scipy version).
+
+    The function spits out the extent, and the new
+    grid and interpolated values
+    """
+
+    newZ = gdata(np.vstack((Xin, Yin)).T, Zin,
+                 np.vstack((newX.ravel(), newY.ravel())).T,
+                 fill_value=fill_value, method=method)
+    return newZ.reshape(newX.shape)
 
 ##############################################################
 # -----Rotation and Deprojecting routine----------------------
@@ -218,3 +250,78 @@ def interpolate_profile(x, data, edata=None, step=1.0):
         coeff_espline = scipy.interpolate.splrep(x, edata, k=1)
         edfine = scipy.interpolate.splev(xfine, coeff_espline)
     return xfine, dfine, edfine
+
+def xy_to_polar(x, y, cx=0.0, cy=0.0, angle=0.) :
+    """
+    Convert x and y coordinates into polar coordinates
+
+    cx and cy: Center in X, and Y. 0 by default.
+    angle : angle in degrees
+         (Counter-clockwise from vertical)
+         This allows to take into account some rotation
+         and place X along the abscissa
+         Default is None and would be then set for no rotation
+
+    Return : R, theta (in degrees)
+    """
+    # If the angle does not have X along the abscissa, rotate
+    if np.mod(angle, 180.) != 0.0 :
+        x, y = rotxyC(x, y, cx=cx, cy=cy, angle=angle)
+    else :
+        x, y = x - cx, y - cy
+
+    # Polar coordinates
+    r = np.sqrt(x**2 + y**2)
+
+    # Now computing the true theta
+    theta = np.zeros_like(r)
+    theta[(x == 0.) & (y >= 0.)] = pi / 2.
+    theta[(x == 0.) & (y < 0.)] = -pi / 2.
+    theta[(x < 0.)] = np.arctan(y[(x < 0.)] / x[(x < 0.)]) + pi
+    theta[(x > 0.)] = np.arctan(y[(x > 0.)] / x[(x > 0.)])
+    return r, np.rad2deg(theta)
+
+def polar_to_xy(r, theta) :
+    """
+    Convert x and y coordinates into polar coordinates
+
+    r: float array
+    Theta: float array [in Degrees]
+
+    Return :x, y
+    """
+
+    theta_rad = np.deg2rad(theta)
+    return r * np.cos(theta_rad), r * np.sin(theta_rad)
+
+def rotxC(x, y, cx=0.0, cy=0.0, angle=0.0) :
+    """ Rotate by an angle (in degrees)
+        the x axis with a center cx, cy
+
+        Return rotated(x)
+    """
+    angle_rad = np.deg2rad(angle)
+    return (x - cx) * np.cos(angle_rad) + (y - cy) * np.sin(angle_rad)
+
+def rotyC(x, y, cx=0.0, cy=0.0, angle=0.0) :
+    """ Rotate by an angle (in degrees)
+        the y axis with a center cx, cy
+
+        Return rotated(y)
+    """
+    angle_rad = np.deg2rad(angle)
+    return (cx - x) * np.sin(angle_rad) + (y - cy) * np.cos(angle_rad)
+
+def rotxyC(x, y, cx=0.0, cy=0.0, angle=0.0) :
+    """ Rotate both x, y by an angle (in degrees)
+        the x axis with a center cx, cy
+
+        Return rotated(x), rotated(y)
+    """
+    # First centring
+    xt = x - cx
+    yt = y - cy
+
+    # Then only rotation
+    return rotxC(xt, yt, angle=angle), rotyC(xt, yt, angle=angle)
+

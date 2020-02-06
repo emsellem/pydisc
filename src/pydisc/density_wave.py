@@ -13,6 +13,10 @@ from .disc import GalacticDisc
 from .disc_data import Slicing
 from .misc_io import add_suffix
 
+# Units
+from astropy import units as u
+from . import local_units as lu
+
 class DensityWave(GalacticDisc):
     """
     Main DensityWave class, describing a galactic disc with some Wave propagating
@@ -35,7 +39,7 @@ class DensityWave(GalacticDisc):
         # Using GalacticDisc class attributes
         super().__init__(**kwargs)
 
-    def get_bar_VRtheta(self, dataset_name=None):
+    def get_bar_VRtheta(self, map_name=None):
         """Compute the in-plane deprojected velocities for a barred
         system, using a mirror technique developed by Witold Maciejewski.
 
@@ -44,8 +48,8 @@ class DensityWave(GalacticDisc):
         dataset_name: str
             Name of the DataSet to use
        """
-        ds = self._get_dataset(dataset_name)
-        self.deproject_velocities(dataset_name)
+        ds = self._get_map(map_name)
+        self.deproject_velocities(map_name)
         ds.align_xy_deproj_bar(self)
 
         ## Mirroring the Velocities
@@ -63,9 +67,9 @@ class DensityWave(GalacticDisc):
         ds.Vx = ds.Vr * cos(ds.gamma_rad) - ds.Vt * sin(ds.gamma_rad)
         ds.Vy = ds.Vr * sin(ds.gamma_rad) + ds.Vt * cos(ds.gamma_rad)
 
-    def tremaine_weinberg(self, slit_width=1.0, dataset_name=None,
+    def tremaine_weinberg(self, slit_width=1.0, map_name=None,
                           flag=None, **kwargs):
-        """ Apply the standard Tremaine Weinberg to the disc dataset.
+        """ Apply the standard Tremaine Weinberg to the disc Map.
 
         Using X_lon, Y_lon, Flux and Velocity
 
@@ -74,20 +78,29 @@ class DensityWave(GalacticDisc):
         slit_width : float [1.0]
             Slit width in arcseconds.
         """
-        ds = self._get_dataset(dataset_name)
+        ds = self._get_map(map_name)
         ds.align_xy_lineofnodes(self)
+        uXY = ds.XYunit
 
         Iname = kwargs.pop("Iname", add_suffix("I", flag))
         Vname = kwargs.pop("Vname", add_suffix("V", flag))
 
-        Flux = getattr(ds.datamaps, Iname).data
-        eFlux = getattr(ds.datamaps, Iname).edata
-        Vel = getattr(ds.datamaps, Vname).data
-        eVel = getattr(ds.datamaps, Vname).edata
+        Imap = ds.dmaps[Iname]
+        Vmap = ds.dmaps[Vname]
+        Flux, eFlux, uFlux = Imap.data, Imap.edata, Imap.unit
+        Vel, eVel, uVel = Vmap.data, Vmap.edata, Vmap.unit
+
+        # Converting X in kpc
+        fac_kpc, newXY_unit = self.convert_xyunit(uXY)
+        X_lon_kpc = ds.X_lon * fac_kpc
+        uXY = newXY_unit
+
         # Get Flux * Velocities
         fV = Flux * -Vel
+        ufV = uFlux * uVel
         # Get the Flux * X
-        fx = Flux * ds.X_lon
+        fx = Flux * X_lon_kpc
+        ufx = uFlux * uXY
         # Get the errors
         fV_err = fV * np.sqrt((eFlux / Flux)**2 + (eVel / Vel)**2)
 
@@ -104,7 +117,12 @@ class DensityWave(GalacticDisc):
                                    weights=np.nan_to_num(fV).ravel()[selin])
         fluxX_slit = np.bincount(dig[selin],
                                  weights=np.nan_to_num(fx).ravel()[selin])
-        ds_slits.Omsini_tw = fluxVel_slit / fluxX_slit
+
+        # Do the calculation and get the right unit
+        conv_factor, Om_unit = lu.get_conversion_factor(ufV / ufx, lu.kmskpc)
+        ds_slits.Omsini_tw = fluxVel_slit * conv_factor / fluxX_slit
+        ds_slits.unit_Omsini_tw = Om_unit
+
         ds_slits.dfV_tw = fluxVel_slit / flux_slit
         ds_slits.dfx_tw = fluxX_slit / flux_slit
 

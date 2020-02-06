@@ -50,8 +50,8 @@ def visualise_data(Xin, Yin, Zin, newextent=None,
     plt.imshow(newZ, extent=extent, **kwargs)
     return extent, newX, newY, newZ
 
-def show_tw(disc, slicing_name=None, coef=4,
-            vminV=-150, vmaxV=150, live=True,
+def show_tw(disc, slicing_name=None, map_name=None,
+            coef=4, vminV=-150, vmaxV=150, live=True,
             flag=None, **kwargs):
     """Makes an interactive plot of the results from
     applying the Tremaine Weinberg method.
@@ -70,13 +70,13 @@ def show_tw(disc, slicing_name=None, coef=4,
 
     # get the slicing
     slicing = disc._get_slicing(slicing_name)
-    dataset = disc._get_dataset(slicing_name)
+    thismap = disc._get_map(map_name)
 
     # Set up colourbar limits for the image
     Iname = kwargs.pop("Iname", add_suffix("I", flag))
     Vname = kwargs.pop("Vname", add_suffix("V", flag))
-    Flux = getattr(dataset.datamaps, Iname).data
-    Vel = getattr(dataset.datamaps, Vname).data
+    Flux = getattr(thismap.dmaps, Iname).data
+    Vel = getattr(thismap.dmaps, Vname).data
     sel_flux = (Flux != 0)
     vminF = np.nanpercentile(np.log10(Flux[sel_flux]), 0.5)
     vmaxF = np.nanpercentile(np.log10(Flux[sel_flux]), 99.75)
@@ -91,7 +91,7 @@ def show_tw(disc, slicing_name=None, coef=4,
                cmap=cmocean.cm.gray_r,
                origin='lower', interpolation='none',
                vmin=vminF, vmax=vmaxF,
-               extent=dataset.XYin_extent)
+               extent=thismap.XYin_extent)
 
     ncolour_plot = len(slicing.ycentres[::coef])
     # Setting the colour cycle
@@ -102,13 +102,13 @@ def show_tw(disc, slicing_name=None, coef=4,
     nslits = len(slicing.ycentres)
 
     # Get all the slits
-    pa = dataset._get_angle_from_PA(disc.PA_nodes)
+    pa = thismap._get_angle_from_PA(disc.PA_nodes)
     alpha_rad = np.deg2rad(pa + 90.0)
 
     # lines_inter will be the x, y coordinates for the slit
     lines_inter = np.zeros((nslits, 2, 2))
     for i in range(nslits):
-        lines_inter[i] = clipping_to_rectangle(slicing.ycentres[i], pa, extent=dataset.XYin_extent)
+        lines_inter[i] = clipping_to_rectangle(slicing.ycentres[i], pa, extent=thismap.XYin_extent)
 
     ycmin, ycmax = np.min(slicing.yedges), np.max(slicing.yedges)
 
@@ -176,10 +176,10 @@ def show_tw(disc, slicing_name=None, coef=4,
                cmap=cmocean.cm.balance,
                origin='lower', interpolation='none',
                vmin=vminV, vmax=vmaxV,
-               extent=dataset.XYin_extent)
+               extent=thismap.XYin_extent)
 
     # Also plot on the axis line
-    line_y0 = clipping_to_rectangle(0, pa, extent=dataset.XYin_extent)
+    line_y0 = clipping_to_rectangle(0, pa, extent=thismap.XYin_extent)
     ax2.plot([line_y0[0,0], line_y0[1,0]], [line_y0[0,1], line_y0[1,1]], 'k--', linewidth=2)
 
     # START of the 3rd plot with the scatter points

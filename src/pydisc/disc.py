@@ -12,32 +12,31 @@ from collections import OrderedDict
 
 # External modules
 import numpy as np
-from numpy import cos, sin
-from scipy.interpolate import griddata as gdata
+from os.path import join as joinpath
 
 # local modules
 from .galaxy import Galaxy
-from . import transform
-from .disc_data import DataSet, DataProfile
-from .misc_io import add_err_prefix, AttrDict
+from .disc_data import Map, Profile
+from .misc_io import add_err_prefix, AttrDict, read_vc_file
+from .local_units import *
 
 dic_moments = OrderedDict([
               # order   type   attr_name  comment
-                (-1, [("Xin", "X", "X axis coordinate"),
-                      ("Yin", "Y", "Y axis coordinate")]),
-                (0, [("Flux", "I", "flux [integrated]"),
-                     ("Mass", "M", "mass [integrated]"),
-                     ("DFlux", "Id", "flux density [per unit area]"),
-                     ("DMass", "Md", "mass density [per unit area]"),]),
-                (1, [("Vel", "V", "velocity")]),
-                (2, [("Disp", "S", "dispersion"),
-                     ("Mu2", "mu2", "non-centred 2nd order moment")])
+                (-1, [("Xin", "X", "X axis coordinate", pixel),
+                      ("Yin", "Y", "Y axis coordinate", pixel)]),
+                (0, [("Flux", "I", "flux [integrated]", Lsun),
+                     ("Mass", "M", "mass [integrated]", Msun),
+                     ("DFlux", "Id", "flux density [per unit area]", Lsunpc2),
+                     ("DMass", "Md", "mass density [per unit area]", Msunpc2),]),
+                (1, [("Vel", "V", "velocity", kms)]),
+                (2, [("Disp", "S", "dispersion", kms),
+                     ("Mu2", "mu2", "non-centred 2nd order moment", kms2)])
                 ])
 
 dic_invert_moments = {}
 for order in dic_moments.keys():
     for tup in dic_moments[order]:
-        dic_invert_moments[tup[0]] = order
+        dic_invert_moments[tup[0]] = (order,) + tup[1:]
 
 def get_all_moment_types():
     """Get all types for all moments
@@ -75,10 +74,10 @@ def get_moment_attr(order):
     """
     return [defset[1] for defset in dic_moments[order]]
 
-def print_datasets():
-    """List the potential DataSets attributes from dic_moments
+def print_dict_maps():
+    """List the potential Maps attributes from dic_moments
     Returns:
-        names for the DataSets
+        names for the Maps
     """
     for order in dic_moments.keys():
         for defset in dic_moments[order]:
@@ -112,11 +111,13 @@ class GalacticDisc(Galaxy):
         # Using galaxy class attributes
         super().__init__(**kwargs)
 
-        # initialise DataSets if any
-        self.add_dataset(**kwargs)
+        # initialise Maps if any
+        self._reset_maps()
+        self._reset_profiles()
+        self.add_map(**kwargs)
 
         # init slicing
-        self.init_slicing()
+        self._reset_slicing()
 
     @property
     def slicing(self):
@@ -131,7 +132,7 @@ class GalacticDisc(Galaxy):
         else:
             return self.slicings[slicing_name]
 
-    def init_slicing(self):
+    def _reset_slicing(self):
         """Initialise the slice dictionary if needed
         """
         if not hasattr(self, "slicings"):
@@ -147,48 +148,52 @@ class GalacticDisc(Galaxy):
         """
         self.slicings[slicing_name] = value
 
-    def _reset_datasets(self):
-        """Initalise the DataSet by setting an empty
-        'DataSets' dictionary
+    def _reset_maps(self):
+        """Initalise the Maps by setting an empty
+        'maps' dictionary
         """
-        # set up the DataSets
-        self.datasets = AttrDict()
+        # set up the Maps
+        self.maps = AttrDict()
 
-    def _reset_vprofiles(self):
-        """Initalise the vprofiles by setting an empty
-        dictionary
+    def _reset_profiles(self):
+        """Initalise the Profiles by setting an empty
+        'profiles' dictionary
         """
-        # set up the DataSets
-        self.Vprofiles = AttrDict()
+        # set up the Profiles
+        self.profiles = AttrDict()
 
     @property
-    def nVprofiles(self):
-        if hasattr(self, 'Vprofiles'):
-            return len(self.Vprofiles)
+    def nprofiles(self):
+        """Number of existing profiles
+        """
+        if hasattr(self, 'profiles'):
+            return len(self.profiles)
         else:
             return -1
 
     @property
-    def ndatasets(self):
-        if hasattr(self, 'datasets'):
-            return len(self.datasets)
+    def nmaps(self):
+        """Number of existing maps
+        """
+        if hasattr(self, 'maps'):
+            return len(self.maps)
         else:
             return -1
 
-    def add_dataset(self, comment="", **kwargs):
-        """Adding a DataSet which can include various keywords like
+    def add_map(self, comment="", **kwargs):
+        """Adding a Map which can include various keywords like
         Xin, Yin, Vel, etc.
-        It is important to provide a flag so that the DataSet has a unique entry
-        in the 'DataSets' dictionary.
+        It is important to provide a flag so that the Map has a unique entry
+        in the 'Map' dictionary.
 
         Args:
             comment: str
             **kwargs:
                 name: str
-                    Name of the dataset
+                    Name of the Map
         """
-        if self.ndatasets <= 0:
-            self._reset_datasets()
+        if self.nmaps <= 0:
+            self._reset_maps()
 
         # First scan all the input kwargs to see which data are there
         # This will set up the attributes which are relevant
@@ -196,67 +201,71 @@ class GalacticDisc(Galaxy):
         # if _set_ref_data is not defined, it means we didn't detect
         # any proper numpy array
         if ref_data_shape is None:
-            print("WARNING: no DataSet yet provided - model will be empty")
-            print("       ==> Use model.add_dataset() to add a dataset")
+            print("WARNING: no Map yet provided - model will be empty")
+            print("       ==> Use model.add_map() to add a Map")
             return
 
-        dataset_name = kwargs.pop("name", "dataset{:02d}".format(self.ndatasets + 1))
+        map_name = kwargs.pop("name", "Map{:02d}".format(self.nmaps + 1))
+        if self._has_map(map_name):
+            if not overwrite:
+                print("ERROR[add_map]: trying to overwrite an existing Map. "
+                      "Use overwrite=True if you wish to proceed with this. - Aborting -")
+                return
+            else:
+                print("WARNING[add_map]: overwriting existing Map ({}).".format(map_name))
 
-        # First initialise the DataSet with X and Y by reading
+        # First initialise the Map with X and Y by reading
         # Xin and Yin as defined in the dictionary
-        Xin = kwargs.get(get_moment_type(-1)[0], None)
-        Yin = kwargs.get(get_moment_type(-1)[1], None)
+        Xin = kwargs.pop(get_moment_type(-1)[0], None)
+        Yin = kwargs.pop(get_moment_type(-1)[1], None)
 
         # The names of the given X and Y attribute names
         # are by default defined in the dictionary
         nameX = get_moment_attr(-1)[0]
         nameY = get_moment_attr(-1)[1]
 
-        # Now create the corresponding DataSet
-        mydataset = DataSet(Xin, Yin, nameX=nameX, nameY=nameY,
-                            ref_shape=ref_data_shape, comment=comment,
-                            name=dataset_name, **kwargs)
+        # Now create the corresponding Map
+        newmap = Map(Xin, Yin, nameX=nameX, nameY=nameY,
+                     ref_shape=ref_data_shape, comment=comment,
+                     name=map_name, **kwargs)
 
-        # If we have now a proper DataSet with a shape
-        # We can add all the provided data
+        # If we have now a proper Map with a shape
+        # We can add all the provided datamaps
         all_tuples = get_all_moment_tuples()
         for kwarg in kwargs:
             for tup in all_tuples:
                 if kwarg.startswith(tup[0]):
                     # name of variable and attribute
-                    map_flag = kwarg.replace(tup[0], "")
-                    map_name = kwarg.replace(tup[0], tup[1])
-                    map_type = tup[2]
-                    order = dic_invert_moments[tup[0]]
+                    dmap_flag = kwarg.replace(tup[0], "")
+                    dmap_name = kwarg.replace(tup[0], tup[1])
+                    dmap_type = tup[2]
+                    order = dic_invert_moments[tup[0]][0]
+                    unit = dic_invert_moments[tup[0]][3]
 
-                    # Extracting the kwarg array
+                    # Extracting the kwarg array data and edata
                     data = kwargs.get(kwarg, None)
-                    # See if uncertainties are there
                     edata = kwargs.get(add_err_prefix(kwarg), None)
-                    if edata is None:
-                        edata = np.zeros_like(data)
 
                     # If data is not None and array
                     if isinstance(data, np.ndarray):
-                        mydataset.attach_datamap(data, order=order, edata=edata,
-                                                 map_name=map_name,
-                                                 map_flag=map_flag,
-                                                 map_type=map_type)
+                        newmap.add_data(data, order=order, edata=edata,
+                                        data_name=dmap_name, data_flag=dmap_flag,
+                                        data_type=dmap_type, data_unit=unit)
 
-        mydataset.align_axes(self)
-        self.datasets[dataset_name] = mydataset
+        newmap.align_axes(self)
+        self.maps[map_name] = newmap
 
-    def _has_dataset(self, name):
-        if self.ndatasets <= 0:
+    def _has_map(self, name):
+        if self.nmaps <= 0:
             return False
         else:
-            return name in self.datasets.keys()
+            return name in self.maps.keys()
 
-    def _get_datamap(self, dataset_name, datamap_name=None, order=None):
-        """Get the datamap from a given dataset
+    def _get_datamap(self, map_name, datamap_name=None, order=None):
+        """Get the datamap from a given Map
         """
-        # Get the dataset
-        ds = self._get_dataset(dataset_name)
+        # Get the Map
+        ds = self._get_map(map_name)
         if datamap_name is None:
             if order is None:
                 # then just get the first map
@@ -271,10 +280,10 @@ class GalacticDisc(Galaxy):
         if hasattr(ds, datamap_name):
             datamap = getattr(ds, datamap_name)
         else:
-            print("No such datamap {} in this dataset".format(
+            print("No such datamap {} in this Map".format(
                datamap_name))
-            return ds, datamap_name, None
-        return ds, datamap_name, datamap
+            return ds, None
+        return ds, datamap
 
     def _get_ref_shape(self, **kwargs):
         # Getting all the input by scanning attribute names
@@ -294,65 +303,104 @@ class GalacticDisc(Galaxy):
 
         return ref_data_shape
 
-    def _get_dataset(self, dataset_name=None):
+    def _get_map(self, map_name=None, type=""):
         """
         Args:
             **kwargs:
         Returns:
-            Either dataset_name if provide, otherwise
-            just the first dataset name.
+            Either Map if provided, otherwise
+            just the first Map name.
         """
-        # if name is None, get the first DataSet
-        if dataset_name is None :
-            dataset_name = list(self.datasets.keys())[0]
-        return self.datasets[dataset_name]
+        # if name is None, get the first Map
+        if map_name is None :
+            for map_name in self.maps.keys():
+                if type in self.maps[map_name].type:
+                    break
+        return self.maps[map_name]
 
-    def add_vprofile(self, vfilename=None, vfiletype="ROTCUR", folder="", flag=None):
+    def _get_profile(self, profile_name=None, type=""):
+        """
+        Args:
+            **kwargs:
+        Returns:
+            Either profile_name if provided, otherwise
+            just the first profile name.
+        """
+        # if name is None, get the first Profile
+        if profile_name is None :
+            for profile_name in self.profiles.keys():
+                if type in self.profiles[profile_name].type:
+                    break
+        return self.profiles[profile_name]
+
+    def add_vprofile(self, filename=None, filetype="ROTCUR", folder="",
+                     prof_name=None, **kwargs):
         """Reading the input V file
 
         Input
         -----
-        vfilename: str
+        filename: str
             Name of the Vcfile
-        vfiletype: str
+        filetype: str
             'ROTCUR' or 'ASCII'
         folder: str
-        flag: str
+        name: str
         """
-        if vfilename is None:
-            print("ERROR: no Vfilename provided - Aborting")
+        if filename is None:
+            print("ERROR: no filename provided - Aborting")
 
         if self.verbose :
             print("Reading the V file")
 
         # Reading of observed rot velocities
-        vfilename = joinpath(folder + vfilename)
-        status, R, Vc, eVc = read_vc_file(vfilename,
-                        vc_filetype=vfiletype)
+        filename = joinpath(folder + filename)
+        status, R, Vc, eVc = read_vc_file(filename=filename, filetype=filetype)
 
         if status == 0:
-            if self.nVprofiles < 0:
-                self._reset_vprofiles()
-            if flag is None:
-                flag = "Vprof_{:02d}".format(self.nVprofiles + 1)
-            self.Vprofiles[flag] = DataProfile(Vc, eVc, radii=R, name=flag, order=1, type=vc_filetype)
+            if self.nprofiles < 0:
+                self._reset_profiles()
+            if prof_name is None:
+                prof_name = "Vprof_{:02d}".format(self.nprofiles + 1)
+            self.profiles[prof_name] = Profile(data=Vc, edata=eVc, Rin=R,
+                                          data_name=prof_name, order=1,
+                                          type='vel', data_unit=kms,
+                                          data_type=filetype, **kwargs)
             if self.verbose:
                 print("Vc file successfully read")
         else:
             print("ERROR status {}".format(status))
 
-    def deproject_nodes(self, dataset_name=None):
+    def deproject_nodes(self, map_name=None):
         """Deproject disc mass or flux
         """
-        ds = self._get_dataset(dataset_name)
-        ds.deproject(self)
+        self._get_map(map_name).deproject(self)
 
     def deproject_vprofile(self, profile_name):
         """Deproject Velocity values by dividing by the sin(inclination)
         """
-        if profile_name not in self.Vprofiles.keys():
+        if profile_name not in self.profiles.keys():
             print("ERROR: no such profile ({}) in this model - Aborting".format(
                   profile_name))
+            return
+        if self.profiles[profile_name].order != 1:
+            print("ERROR[deproject_vprofile]: profile not of order=1 - Aborting")
+            return
 
-        self.Vprofiles[profile_name].deproject_velocities(self.inclin)
+        self.profiles[profile_name].deproject_velocities(self.inclin)
+
+    def get_radial_profile(self, map_name, datamap_name=None, order=0):
+        """Get a radial profile from a given map. If datamap_name
+        is None, it will use the first map of order 0.
+
+        Args:
+            map_name:
+            datamap_name:
+            order:
+
+        Returns:
+
+        """
+        pass
+
+
 

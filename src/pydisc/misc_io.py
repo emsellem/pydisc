@@ -6,7 +6,9 @@ files.
 import os
 
 import numpy as np
-import scipy
+from scipy import stats
+from . import transform
+from . import local_units as lu
 
 __author__ = "Eric Emsellem"
 __copyright__ = "Eric Emsellem"
@@ -109,7 +111,7 @@ def add_err_prefix(name, link=default_prefix_separator):
 #========================================
 # Reading the Circular Velocity from file
 #========================================
-def read_vc_file(filename, Vcfile_type="ROTCUR"):
+def read_vc_file(filename, filetype="ROTCUR"):
     """Read a circular velocity ascii file. File can be of
     type ROTCUR (comments are '!') or ASCII (comments are '#')
 
@@ -117,7 +119,7 @@ def read_vc_file(filename, Vcfile_type="ROTCUR"):
     ----------
     filename: str
         name of the file.
-    Vcfile_type: str ['ROTCUR']
+    filetype: str ['ROTCUR']
         'ROTCUR' or 'ASCII'.
 
     Returns
@@ -143,23 +145,23 @@ def read_vc_file(filename, Vcfile_type="ROTCUR"):
         print('OPENING ERROR: File {0} not found'.format(filename))
         status = -1
     else:
-        if Vcfile_type.upper() not in dic_comments.keys():
+        if filetype.upper() not in dic_comments.keys():
             print("ERROR: Vc file type not recognised")
             status = -2
         else:
             # Reading the file using the default comments
             Vcdata = np.loadtxt(filename,
-                                comments=dic_comments[Vcfile_type.upper()]).T
+                                comments=dic_comments[filetype.upper()]).T
 
             # now depending on file type - ROTCUR
-            if Vcfile_type.upper() == "ROTCUR":
+            if filetype.upper() == "ROTCUR":
                 selV = (Vcdata[7] == 0) & (Vcdata[6] == 0)
                 radius = Vcdata[0][selV]
                 Vc = Vcdata[4][selV]
                 eVc = Vcdata[5][selV]
 
             # now - ASCII
-            elif Vcfile_type.upper() == "ASCII":
+            elif filetype.upper() == "ASCII":
                 radius = Vcdata[0]
                 Vc = Vcdata[1]
                 eVc = np.zeros_like(Vc)
@@ -239,7 +241,7 @@ def guess_step(Xin, Yin, index_range=[0,100], verbose=False) :
     -------
     step : guessed step (float)
     """
-    ## Stacking the first 100 points of the grid and determining the distance
+    # Stacking the first 100 points of the grid and determining the distance
     stackXY = np.vstack((Xin[index_range[0]:index_range[1]], Yin[index_range[0]:index_range[1]])).T
     diffXY = distance.cdist(stackXY, stackXY)
 
@@ -289,21 +291,45 @@ def get_1d_radial_sampling(rmap, nbins):
 
     return rsamp, rstep
 
-# ============================================================
-# -----------Create Radial Profile----------------------------
-# ============================================================
-def extract_radial_profile(rmap, data, nbins,
-                           thetamap=None, verbose=True, angle_wedge=0.0,
-                           wedge_size=0.0):
+def extract_radial_profile_fromXY(X, Y, data, nbins=None,
+                                  verbose=True,
+                                  wedge_size=0.0, wedge_angle=0.):
+    """Extract a radial profile from an X,Y, data grod
+
+    Args:
+        X:
+        Y:
+        data:
+        nbins:
+        verbose:
+        wedge_size:
+        wedge_angle:
+
+    Returns:
+        R, profile
+    """
+
+    rmap, thetamap = transform.xy_to_polar(X, Y)
+    return extract_radial_profile(rmap, data, nbins=nbins,
+                                  thetamap=thetamap,
+                                  verbose=verbose, wedge_size=wedge_size,
+                                  wedge_angle=wedge_angle)
+
+def extract_radial_profile(rmap, data, nbins=None,
+                           thetamap=None, verbose=True,
+                           wedge_size=0.0, wedge_angle=0.):
     """Extract a radial profile from input frame
+    Given theta and r maps
+
     Input
     -----
     rmap: float array
         Values of the radius.
     data: float array
         Input data values.
-    nbins: int
+    nbins: int [None]
         Number of bins for the radial profile.
+        If None, using an estimate from the input rmap size.
     wedge_angle: float [0]
         Position angle of the wedge to exclude
     wedge_size: float [0]
@@ -324,9 +350,11 @@ def extract_radial_profile(rmap, data, nbins,
     if verbose:
         print("Deriving the radial profile ... \n")
 
+    if nbins is None:
+        nbins = np.int(np.sqrt(rmap.size) * 1.5)
+
     # First deriving the max and cutting it in nbins
     rsamp, stepr = get_1d_radial_sampling(rmap, nbins)
-    rdata = np.zeros_like(rsamp)
     if thetamap is None:
         thetamap = np.ones_like(rmap)
         wedge_size = 0.0
@@ -334,15 +362,9 @@ def extract_radial_profile(rmap, data, nbins,
         thetamap -= wedge_angle
 
     # Filling in the values for y (only if there are some selected pixels)
-    for i in range(len(rsamp) - 1):
-        # Selecting an annulus between two radii and without a wedge
-        sel = np.where((rmap >= rsamp[i]) & (rmap < rsamp[i+1])
-                    & (((thetamap > wedge_size)
-                       & (thetamap < 180.0 - wedge_size))
-                    | ((thetamap > 180.0 + wedge_size)
-                       & (thetamap < 360. - wedge_size))))
-        if len(sel) > 0:
-            rdata[i] = np.mean(data[sel], axis=None)
-
+    sel_wedge = (thetamap > wedge_size) & (thetamap < 180.0 - wedge_size)
+    rdata, bin_edges, bin_num = stats.binned_statistic(rmap[sel_wedge], data[sel_wedge],
+                                                       statistic='mean', bins=rsamp)
     # Returning the obtained profile
-    return rsamp, rdata
+    return rsamp[:-1], rdata
+
