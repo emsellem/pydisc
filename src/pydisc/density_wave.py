@@ -12,9 +12,9 @@ __license__ = "mit"
 from .disc import GalacticDisc
 from .disc_data import Slicing
 from .misc_io import add_suffix
+from .plotting import show_tw
 
 # Units
-from astropy import units as u
 from . import local_units as lu
 
 class DensityWave(GalacticDisc):
@@ -53,7 +53,7 @@ class DensityWave(GalacticDisc):
         ds.align_xy_deproj_bar(self)
 
         ## Mirroring the Velocities
-        ds.V_mirror = gdata(np.vstack((ds.Xin.ravel(), ds.Yin.ravel())).T,
+        ds.V_mirror = gdata(np.vstack((ds.X.ravel(), ds.Y.ravel())).T,
                                  ds.Vdep.ravel(),
                                  (ds.X_mirror, ds.Y_mirror),
                                  fill_value=ds._fill_value, method=ds._method)

@@ -14,11 +14,19 @@ import astropy.units as u
 
 # Float
 from .misc_io import add_suffix, default_float, add_err_prefix
-from .misc_io import AttrDict, remove_suffix, extract_radial_profile_fromXY
+from .misc_io import extract_suffixes_from_kwargs
+from .misc_io import AttrDict, remove_suffix
 from . import check, transform
+from . import local_units as lu
 
 default_data_names = ["data", "edata"]
 dict_units = {"XY": u.arcsec, "R": u.arcsec}
+dict_kwargs_Map = {'comment':"", 'NE_direct':0,
+                   'alpha_North':0, 'filled_value':'nan',
+                   'method':'linear'}
+# List of attributes to use for Maps and DataMaps
+list_Data_attr = ["dorder", "dtype", "dname",
+                  "data", "edata", "dunit"]
 
 class DataMap(object):
     """Data class representing a specific map
@@ -30,7 +38,7 @@ class DataMap(object):
     order
     name
     """
-    def __init__(self, data, edata=None, order=0, name=None, flag=None, type="", unit=None):
+    def __init__(self, data, edata=None, order=0, name=None, flag=None, dtype="", dunit=None):
         """
         Args:
             data: numpy array
@@ -42,15 +50,16 @@ class DataMap(object):
             name: str [None]
                 Name of the map.
             flag: str [None]
-            type: str [""]
+            dtype: str [""]
+            dunit: astropy unit [None]
         """
         self.data = data
         self.edata = edata
         self.order = order
         self.name = name
         self.flag = flag
-        self.type = type
-        self.unit = unit
+        self.dtype = dtype
+        self.dunit = dunit
 
     def add_transformed_data(self, data, edata=None, suffix=""):
         """Add a transformed map - e.g, deprojected - using a suffix
@@ -78,7 +87,8 @@ class DataMap(object):
 
         """
         self.data = self.data.reshape(shape)
-        self.edata = self.edata.reshape(shape)
+        if self.edata is not None:
+            self.edata = self.edata.reshape(shape)
 
     def deproject_velocities(self, inclin=90.0):
         """Deproject Velocity map and add it
@@ -103,7 +113,7 @@ class DataProfile(DataMap):
                 order: int
                 name: str
                 flag: str
-                type: ""
+                dtype: ""
         """
         # Using DataMap class attributes
         super().__init__(data=data, edata=edata, **kwargs)
@@ -113,10 +123,6 @@ class DataProfile(DataMap):
             self.data = self.data.ravel()
         if edata is not None:
             self.edata = self.edata.ravel()
-
-dict_kwargs_Map = {'comment':"", 'NE_direct':0,
-                   'alpha_North':0, 'filled_value':'nan',
-                   'method':'linear'}
 
 class Map(object):
     """A Map is a set of DataMaps associated with a location grid (X, Y)
@@ -132,7 +138,7 @@ class Map(object):
         from North in the map.
     alpha_North: float [0.]
         Angle of the North w.r.t. top. Positive means counter-clockwise.
-    Xin, Yin: numpy arrays [None, None]
+    X, Y: numpy arrays [None, None]
         Input location grid
     data: numpy array [None]
         Input values
@@ -141,14 +147,13 @@ class Map(object):
     order: int [0]
         Order of the velocity moment. -1 for 'others' (e.g., X, Y)
     """
-    def __init__(self, Xin=None, Yin=None, ref_shape=None,
-                 name=None, nameX="X", nameY="Y", type="",
-                 **kwargs):
+    def __init__(self, X=None, Y=None, ref_shape=None,
+                 name=None, mtype="", comment="", **kwargs):
         """
         Args:
-            Xin: numpy array [None]
+            X: numpy array [None]
                 Input X axis location array
-            Yin: numpy array [None]
+            Y: numpy array [None]
                 Input Y axis location array
             Xcen, Ycen: float, float
                 Centre for the X and Y axes. Default is the centre of the image.
@@ -157,47 +162,63 @@ class Map(object):
                 input arrays
             name: str [None]
                 Name of the dataset
-            nameX: str ["X"]
-                Name for the X coordinate.
-            nameY: str ["Y"]
-                Name for the X coordinate.
+            comment: str [""]
+                Comment attached to the Map
 
             **kwargs:
+                Any of these attributes can be provided with
+                a suffix. E.g., "dataCO" will be understood
+                as data and with a flag=CO.
                 data: array
                 edata: array [None]
                     Uncertainty map
-                map_name: str
+                name: str
                     Name of the map
-                map_type: str
+                mtype: str
                     Type of the map
-                map_flag: str
+                flag: str
                     Flag for the map
                 order: int
                     Order for the datamap
-                comment: str [""]
-                    Comment attached to the Map
         """
         # Empty dictionary for the moments
         self.dmaps = AttrDict()
 
-        # See if a datamap is provided
-        data = kwargs.pop("data", None)
+        # We assume that by default the units are the default arcsec
         self.XYunit = kwargs.pop("XYunit", dict_units['XY'])
+
+        # Get the list of suffixes which will be used to attach datasets
+        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
+                                                           list_Data_attr)
+        suffix_data = None
+        for suffix in dict_data_suffix.keys():
+            if "data" in dict_data_suffix[suffix]:
+                suffix_data = suffix
+                data = kwargs.get("data" + suffix_data)
+                break
 
         # First getting the shape of the data
         if ref_shape is not None:
             self.shape = ref_shape
-        elif Xin is not None:
-            self.shape = Xin.shape
-        elif data is not None:
-            self.shape = data.shape
+        # Using X if ref_shape is None
+        elif X is not None:
+            self.shape = X.shape
+        # If no X, try with the data
+        else:
+            if suffix_data is not None:
+                self.shape = data.shape
+            else:
+                print("ERROR: no reference shape is provided "
+                      "(via X, data or ref_shape) - Aborting")
+                return
 
-        self.Xcen = kwargs.pop("Xcen", self.shape[0] / 2.)
-        self.Ycen = kwargs.pop("Ycen", self.shape[1] / 2.)
-        self.pixel_scale = u.pixel_scale(kwargs.pop("pixel_scale", 1.)
-                                         * dict_units['XY'] / u.pixel)
-        if not self._init_XY(Xin, Yin, nameX, nameY):
-            print("ERROR: Xin and Yin are not compatible - Aborting.")
+        # Initialise the X, Y coordinates
+        self.Xcen = kwargs.pop("Xcen", 0.)
+        self.Ycen = kwargs.pop("Ycen", 0.)
+        # Pixel scale for the X, Y coordinates
+        self.pixel_scale = kwargs.pop("pixel_scale", 1.)
+        if not self._init_XY(X, Y):
+            print("ERROR: X and Y are not compatible - Aborting.")
             return
 
         # Boolean to say whether E is direct from N (counter-clockwise)
@@ -212,14 +233,34 @@ class Map(object):
         # Method
         self._method = kwargs.pop("method", "linear")
 
-        # Comment
-        self.comment = kwargs.pop("comment", "")
+        # Comment, name and map type
+        self.comment = comment
         self.name = name
-        self.type = type
+        self.mtype = mtype
+        self.overwrite = kwargs.pop("overwrite", False)
 
-        # Attaching a given datamap
-        if data is not None:
-            self.attach_data(data, **kwargs)
+        self.add_datamaps_from_kwargs(**kwargs)
+
+    def add_datamaps_from_kwargs(self, **kwargs):
+        """Process the list of kwargs to extract datamaps
+        and attach them
+        Attributes
+            **kwargs
+        """
+        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
+                                                           list_Data_attr)
+        # Attaching all detected datamaps
+        for suffix in dict_data_suffix.keys():
+            key_list = dict_data_suffix[suffix]
+            mykwargs = {}
+            for key in key_list:
+                mykwargs[key] = kwargs.pop(add_suffix(key, suffix, link=""), None)
+            if not 'flag' in key_list:
+                mykwargs['flag'] = "datamap{0:02d}".format(len(self.dmaps) + 1)
+            if not 'dname' in key_list:
+                if suffix != "":
+                    mykwargs['dname'] = suffix
+            self.add_data(**mykwargs)
 
     def __getattr__(self, name):
         for suffix in default_data_names:
@@ -234,74 +275,99 @@ class Map(object):
                 for map in self.dmaps.keys() for attr in self.dmaps[map].__dir__()
                 if attr.startswith(item)]
 
-    def _init_XY(self, Xin, Yin, nameX="X", nameY="Y"):
-        """Initialise Xin and Yin
+    def _init_XY(self, X, Y):
+        """Initialise X and Y
 
         Args:
-            Xin: numpy array
-            Yin: numpy array
+            X: numpy array
+            Y: numpy array
                 Input X, Y grid.
-            nameX:
-            nameY:
         """
-        # Define the grid in case Xin, Yin not yet defined
+        # Define the grid in case X, Y not yet defined
         # If it is the case, using the reference Map
-        if Xin is None or Yin is None:
-            print("WARNING: Xin or Yin not provided. Forcing pixel XY grid.")
+        if X is None or Y is None:
+            # We get the grid in pixel
+            print("WARNING: X or Y not provided. Using Pixel XY grid.")
             ref_ind = np.indices(self.shape, dtype=default_float)
-            if Xin is None: Xin = ref_ind[1]
-            if Yin is None: Yin = ref_ind[0]
-            self.unit = u.pixel
-
-        if not check._check_consistency_sizes([Xin, Yin]):
-            print("ERROR: errors on sizes of Xin and Yin")
-            return False
+            self.X = ref_ind[1] - (self.shape[1] - 1.) / 2.
+            self.Y = ref_ind[0] - (self.shape[0] - 1.) / 2.
+            # And now convert to default unit
+            self._convert_to_xyunit()
         else:
-            # Making sure the shapes agree
-            Xin = Xin.reshape(self.shape)
-            Yin = Yin.reshape(self.shape)
-            self._nameX = nameX
-            self._nameY = nameY
-            self.Xin = (Xin - self.Xcen)
-            self.Yin = (Yin - self.Ycen)
-            self._convert_XYunit()
-            return True
+            # if X, Y pre-defined, unit is pre-defined too
+            if not check._check_consistency_sizes([X, Y]):
+                print("ERROR: errors on sizes of X and Y")
+                return False
+            # Just removing the centre to get 0,0
+            self.X = X - self.Xcen
+            self.Y = Y - self.Ycen
 
-    def _convert_XYunit(self):
+        # Making sure the shapes agree
+        self.X = self.X.reshape(self.shape)
+        self.Y = self.Y.reshape(self.shape)
+        return True
+
+    @property
+    def eq_pscale(self):
+        return u.pixel_scale(self.pixel_scale * self.XYunit / u.pixel)
+
+    @property
+    def _get_pixel_scale(self):
+        return (1. * u.pixel).to(self.XYunit, equivalencies=self.eq_pscale).value
+
+    def _convert_to_xyunit(self):
         """Convert XYunit into the default one
         a priori arcseconds.
         """
-        self.Xin *= self.scale_xyunit
-        self.Yin *= self.scale_xyunit
+        self.X *= self.xyunit_per_pixel
+        self.Y *= self.xyunit_per_pixel
         # Update the unit
         self.XYunit = dict_units['XY']
 
     @property
-    def scale_xyunit(self):
+    def xyunit_per_pixel(self):
         return (1. * self.XYunit).to(dict_units['XY'],
-                                 self.pixel_scale).value
+                                 self.eq_pscale).value
+
+    def _get_datamap(self, name=None, order=None):
+        if name is None:
+            if order is None:
+                # then just get the first map
+                name = list(self.dmaps.keys())[0]
+            else:
+                # Then get the first map of right order
+                for key in self.dmaps.keys():
+                    if self.dmaps[key].order == order:
+                        name = key
+                        break
+
+        if self._has_datamap(name):
+            return self.dmaps[name]
+        else:
+            print("No such datamap {} in this Map".format(name))
+            return None
 
     def _has_datamap(self, name):
         return name in self.dmaps.keys()
 
     def _regrid_xydatamaps(self):
-        if not check._check_ifnD([self.Xin], ndim=2):
+        if not check._check_ifnD([self.X], ndim=2):
             print("WARNING: regridding X, Y and datamaps into 2D arrays")
-            newextent, newX, newY = transform.regrid_XY(self.Xin, self.Yin)
+            newextent, newX, newY = transform.regrid_XY(self.X, self.Y)
             for name in self.dmaps.keys():
-                self.dmaps[name].data = transform.regrid_Z(self.Xin, self.Yin,
+                self.dmaps[name].data = transform.regrid_Z(self.X, self.Y,
                                                            self.dmaps[name].data,
                                                            newX, newY,
                                                            fill_value=self._fill_value,
                                                            method=self._method)
-                self.dmaps[name].edata = transform.regrid_Z(self.Xin, self.Yin,
+                self.dmaps[name].edata = transform.regrid_Z(self.X, self.Y,
                                                             self.dmaps[name].edata,
                                                             newX, newY,
                                                             fill_value=self._fill_value,
                                                             method=self._method)
-            # Finally getting the new Xin and Yin
-            self.Xin, self.Yin = newX, newY
-            self.shape = self.Xin.shape
+            # Finally getting the new X and Y
+            self.X, self.Y = newX, newY
+            self.shape = self.X.shape
 
     def _reshape_datamaps(self):
         """Reshape all datamaps following X,Y shape
@@ -318,14 +384,12 @@ class Map(object):
         if self._check_datamap(datamap):
             datamap._reshape_datamap(self.shape)
             self.dmaps[datamap.name] = datamap
-            setattr(self, datamap.name, self.dmaps[datamap.name])
         else:
-            print("WARNING: could not attach datamap")
+            print("WARNING[attach_datamap]: could not attach datamap")
 
-    def add_data(self, data, order=0, edata=None,
-                    data_name=None, data_flag=None, data_type=None,
-                    data_unit=None,
-                    overwrite=False):
+    def add_data(self, data=None, order=0, edata=None,
+                    dname=None, flag=None, dtype=None,
+                    dunit=None, **kwargs):
         """Add a new DataMap to the present Map. Will check if
         grid is compatible.
 
@@ -333,87 +397,68 @@ class Map(object):
             data: 2d array
             order: int
             edata: 2d array
-            data_name: str
-            data_type: str
-            data_flag: str
-
+            dname: str
+            dtype: str
+            flag: str
+            dunit: astropy unit
         """
         if data is None:
+            print("WARNING[attach_data]: cannot attach data: it is 'None'")
             return
 
-        # Input name to define the data. If none, define using the counter
-        if data_name is None:
-            data_name = "map{0:02d}".format(len(self.dmaps)+1)
+        overwrite = kwargs.pop("overwrite", self.overwrite)
 
-        if self._has_datamap(data_name) and not overwrite:
-            print("WARNING: data map {} already exists - Aborting".format(
-                    data_name))
-            print("WARNING: use overwrite option to force.")
+        # Input name to define the data. If none, define using the counter
+        if dname is None:
+            dname = "map{0:02d}".format(len(self.dmaps)+1)
+
+        if self._has_datamap(dname) and not overwrite:
+            print("WARNING[attach_data]: data map {} already exists "
+                  "- Aborting".format(dname))
+            print("WARNING[attach_data]: use overwrite option to force.")
             return
 
         self.attach_datamap(DataMap(data, edata, order,
-                                    data_name, data_flag, data_type,
-                                    data_unit))
+                                    dname, flag, dtype,
+                                    dunit))
 
     def _check_datamap(self, datamap):
         """Check consistency of data
         """
-        # Putting everything in 1D
-        ref_array = self.Xin.ravel()
-
         # Main loop on the names of the dmaps
-        data = datamap.data
-        if datamap.edata is None:
-            datamap.edata = np.zeros_like(data)
-        edata = datamap.edata
-        arrays_to_check = [data.ravel()]
-        arrays_to_check.append(edata.ravel())
+        arrays_to_check = [datamap.data.ravel()]
+        if datamap.edata is not None:
+            arrays_to_check.append(datamap.edata.ravel())
 
+        # First checking that the data are arrays
         if not check._check_ifarrays(arrays_to_check):
             print("ERROR[check_datamap]: input maps not all arrays")
             return False
 
-        arrays_to_check.insert(0, ref_array)
+        # Then checking that they are consistent with X, Y
+        arrays_to_check.insert(0, self.X.ravel())
         if not check._check_consistency_sizes(arrays_to_check):
             print("ERROR[check_datamap]: input datamap does not "
-                  "have the same size than input grid (Xin, Yin)")
+                  "have the same size than input grid (X, Y)")
             return False
 
         return True
 
     def align_axes(self, galaxy):
-        """Align all axes using Xin and Yin as input
+        """Align all axes using X and Y as input
         """
         self.align_xy_lineofnodes(galaxy)
         self.align_xy_bar(galaxy)
         self.align_xy_deproj_bar(galaxy)
 
     @property
-    def XYin_extent(self):
-        return [np.min(self.Xin), np.max(self.Xin),
-                np.min(self.Yin), np.max(self.Yin)]
+    def XY_extent(self):
+        return [np.min(self.X), np.max(self.X),
+                np.min(self.Y), np.max(self.Y)]
 
     @property
-    def Xin(self):
-        return self.__Xin
-
-    @Xin.setter
-    def Xin(self, Xin):
-        setattr(self, self._nameX, Xin)
-        self.__Xin = Xin
-
-    @property
-    def Yin(self):
-        return self.__Yin
-
-    @Yin.setter
-    def Yin(self, Yin):
-        setattr(self, self._nameY, Yin)
-        self.__Yin = Yin
-
-    @property
-    def _Rin(self):
-        return np.sqrt(self.__Xin**2 + self.__Yin**2)
+    def _R(self):
+        return np.sqrt(self.X**2 + self.Y**2)
 
     # Setting up NE direct or not
     @property
@@ -493,18 +538,18 @@ class Map(object):
 
     def rotate(self, **kwargs):
         """Uses the rotate function from transform.py with a default
-        X,Y set of arrays using self.Xin and self.Yin
+        X,Y set of arrays using self.X and self.Y
 
         Parameters
         ----------
         **kwargs: set of arguments, see transform.rotate
-            Includes Xin, Yin, matrix
+            Includes X, Y, matrix
 
         Returns:
         The rotated arrays Xrot, Yrot
         """
-        X = kwargs.pop("X", self.Xin)
-        Y = kwargs.pop("Y", self.Yin)
+        X = kwargs.pop("X", self.X)
+        Y = kwargs.pop("Y", self.Y)
         return transform.rotate_vectors(X, Y, **kwargs)
 
     def deproject_velocities(self, map_name, inclin=90.0):
@@ -538,8 +583,8 @@ class Profile(object):
     order: int [0]
         Order of the velocity moment. -1 for 'others' (e.g., X, Y)
     """
-    def __init__(self, Rin=None, ref_size=None,
-                 name=None, type="", **kwargs):
+    def __init__(self, R=None, ref_size=None,
+                 name=None, ptype="", **kwargs):
         """
         Args:
             Rin: numpy array [None]
@@ -551,11 +596,11 @@ class Profile(object):
                 data: array
                 edata: array [None]
                     Uncertainty profile
-                prof_name: str
+                name: str
                     Name of the profile
-                prof_type: str
+                ptype: str
                     Type of the profile
-                prof_flag: str
+                flag: str
                     Flag for the profile
                 order: int
                     Order for the profile
@@ -566,20 +611,35 @@ class Profile(object):
         self.dprofiles = AttrDict()
 
         # See if a dataprofile is provided
-        data = kwargs.pop("data", None)
         self.Runit = kwargs.pop("Runit", dict_units['R'])
-        self.pixel_scale = u.pixel_scale(kwargs.pop("pixel_scale", 1.)
-                                         * dict_units['R'] / u.pixel)
+        self.pixel_scale = kwargs.pop("pixel_scale", 1.)
+
+        # Get the list of suffixes which will be used to attach datasets
+        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
+                                                           list_Data_attr)
+        suffix_data = None
+        for suffix in dict_data_suffix.keys():
+            if "data" in dict_data_suffix[suffix]:
+                suffix_data = suffix
+                data = kwargs.get("data" + suffix_data)
+                break
 
         # First getting the shape of the data
         if ref_size is not None:
             self.size = ref_size
-        elif Rin is not None:
-            self.size = Rin.size
-        elif data is not None:
-            self.size = data.size
+        elif R is not None:
+            self.size = R.size
         else:
-            self.size = None
+            if suffix_data is not None:
+                self.size = data.size
+            else:
+                print("ERROR: no reference shape is provided "
+                      "(via R, data or ref_size) - Aborting")
+                return
+
+        # New step in R when provided
+        Rfinestep = kwargs.pop("Rfinestep", 0)
+        self._init_R(R)
 
         # Filling value
         self._fill_value = kwargs.pop("fill_value", 'nan')
@@ -590,33 +650,53 @@ class Profile(object):
         self.comment = kwargs.pop("comment", "")
         # Name of Profile
         self.name = name
-        self.type = type
+        self.ptype = ptype
+        self.overwrite = kwargs.pop("overwrite", False)
 
-        # New step in R when provided
-        Rfinestep = kwargs.pop("Rfinestep", 0)
-        self._init_R(Rin)
-
-        # Attaching a given datamap
-        if data is not None:
-            self.add_data(data, **kwargs)
+        self.add_dataprofiles_from_kwargs(**kwargs)
 
         if Rfinestep > 0:
             self.interpolate(newstep=Rfinestep)
 
+    def add_dataprofiles_from_kwargs(self, **kwargs):
+        """Process the list of kwargs to extract dataprofiles
+        and attach them
+        Attributes
+            **kwargs
+        """
+        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
+                                                           list_Data_attr)
+        # Attaching all detected data profiles
+        for suffix in dict_data_suffix.keys():
+            key_list = dict_data_suffix[suffix]
+            mykwargs = {}
+            for key in key_list:
+                mykwargs[key] = kwargs.pop(add_suffix(key, suffix, link=""), None)
+            if not 'flag' in key_list:
+                mykwargs['flag'] = "dataprof{0:02d}".format(len(self.dprofiles) + 1)
+            if not 'dname' in key_list:
+                if suffix != "":
+                    mykwargs['dname'] = suffix
+            self.add_data(**mykwargs)
+
+    @property
+    def eq_pscale(self):
+        return u.pixel_scale(self.pixel_scale * self.Runit / u.pixel)
+
     @property
     def scale_runit(self):
         return (1. * self.Runit).to(dict_units['R'],
-                                     self.pixel_scale).value
+                                     self.eq_pscale).value
 
-    def _convert_Runit(self):
+    def _convert_to_runit(self):
         """Convert Runit into the default one
         a priori arcseconds.
         """
-        self.Rin *= self.scale_runit
+        self.R *= self.scale_runit
         # Update the unit
         self.Runit = dict_units['R']
 
-    def _init_R(self, Rin):
+    def _init_R(self, R):
         """Initialise Rin
 
         Args:
@@ -625,11 +705,11 @@ class Profile(object):
         """
         # Define the grid in case Rin
         # If it is the case, using the reference profile
-        if Rin is None:
-            self.Rin = np.arange(self.size, dtype=default_float)
+        if R is None:
+            self.R = np.arange(self.size, dtype=default_float)
         else:
-            self.Rin = Rin.ravel()
-        self._convert_Runit()
+            self.R = R.ravel()
+        self._convert_to_runit()
 
     def _has_profile(self, name):
         return name in self.dprofiles.keys()
@@ -642,38 +722,38 @@ class Profile(object):
         """
         if self._check_dprofiles(dataprofile):
             self.dprofiles[dataprofile.name] = dataprofile
-            setattr(self, dataprofile.name, self.dprofiles[dataprofile.name])
 
     def add_data(self, data, order=0, edata=None,
-                       data_name=None, data_flag=None, data_type=None,
-                       data_unit=None, overwrite=False):
+                       dname=None, flag=None, dtype=None,
+                       dunit=None, overwrite=False):
         """Attach a new Profile to the present Set.
 
         Args:
             data: 1d array
             order: int
             edata: 1d array
-            data_name: str
-            data_type: str
-            data_flag: str
+            dname: str
+            dtype: str
+            flag: str
+            dunit: astropy unit
 
         """
         if data is None:
             return
 
         # Input name to define the data. If none, define using the counter
-        if data_name is None:
-            data_name = "prof{0:02d}".format(len(self.dprofiles)+1)
+        if dname is None:
+            dname = "prof{0:02d}".format(len(self.dprofiles)+1)
 
-        if self._has_profile(data_name) and not overwrite:
-            print("WARNING: data profile {} already exists - Aborting".format(
-                data_name))
-            print("WARNING: use overwrite option to force.")
+        if self._has_profile(dname) and not overwrite:
+            print("WARNING[add_data]: data profile {} already exists "
+                  "- Aborting".format(dname))
+            print("WARNING[add_data]: use overwrite option to force.")
             return
 
         self.attach_dataprofile(DataProfile(data, edata, order=order,
-                                            name=data_name, flag=data_flag,
-                                            type=data_type, unit=data_unit))
+                                            name=dname, flag=flag,
+                                            dtype=dtype, dunit=dunit))
 
     def __getattr__(self, name):
         for suffix in default_data_names:
@@ -696,26 +776,29 @@ class Profile(object):
             dataprofile: DataProfile
         """
         # Putting everything in 1D
-        ref_array = self.Rin
+        ref_array = self.R
 
         data = dataprofile.data
         edata = dataprofile.edata
         arrays_to_check = [data.ravel()]
         if edata is not None:
             arrays_to_check.append(edata.ravel())
+
+        # Checking if the data are 1D arrays
         if not check._check_ifarrays(arrays_to_check):
             print("ERROR: input profile not all arrays")
             return False
 
+        # Check that they all have the same size
         arrays_to_check.insert(0, ref_array)
         if not check._check_consistency_sizes(arrays_to_check):
             print("ERROR: input profile does not the same size "
-                  "than input radial grid (Rin)")
+                  "than input radial grid (R)")
             return False
 
         return True
 
-    def interpolate(self, step=1.0, suffix="fine", overwrite=False):
+    def interpolate(self, name, step=1.0, suffix="fine", overwrite=False):
         """Provide interpolated profile
 
         Args:
@@ -728,12 +811,14 @@ class Profile(object):
         """
         if step <= 0:
             print("ERROR[interpolate]: new step is <= 0 - Aborting")
-        # Getting the data
-        if self.data is None:
-            print("ERROR[interpolate]: input data is None - Aborting")
             return
 
-        if hasattr(self, add_suffix("R", suffix)):
+        # Getting the data
+        if not self._has_profile(name):
+            print("ERROR[interpolate]: no such map with name {}".format(name))
+            return
+
+        if hasattr(self.dprofiles[name], add_suffix("R", suffix)):
             if overwrite:
                 print("WARNING: overwriting existing interpolated profile")
             else:
@@ -741,14 +826,13 @@ class Profile(object):
                       "Use 'overwrite' to update.")
                 return
 
-        Rfine, dfine, edfine = transform.interpolate_profile(self.Rin,
-                                                             self.data,
-                                                             self.edata,
+        Rfine, dfine, edfine = transform.interpolate_profile(self.R,
+                                                             self.dprofiles[name].data,
+                                                             self.dprofiles[name].edata,
                                                              step=step)
-        setattr(self, add_suffix("R", suffix), Rfine)
-        setattr(self, add_suffix("data", suffix), dfine)
-        setattr(self, add_suffix("edata", suffix), edfine)
-
+        setattr(self.dprofiles[name], add_suffix("R", suffix), Rfine)
+        setattr(self.dprofiles[name], add_suffix("data", suffix), dfine)
+        setattr(self.dprofiles[name], add_suffix("edata", suffix), edfine)
 
 class Slicing(object):
     """Provides a way to slice a 2D field. This class just
@@ -798,4 +882,3 @@ class Slicing(object):
         @property
         def slice_width(self):
             return np.abs(self.yedges[-1] - self.yedges[0])
-

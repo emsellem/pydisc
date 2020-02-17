@@ -16,27 +16,36 @@ from os.path import join as joinpath
 
 # local modules
 from .galaxy import Galaxy
-from .disc_data import Map, Profile
-from .misc_io import add_err_prefix, AttrDict, read_vc_file
+from .disc_data import Map, Profile, list_Data_attr
+from .misc_io import add_err_prefix, add_suffix, AttrDict, read_vc_file
+from .misc_io import extract_suffixes_from_kwargs as ex_suff
 from .local_units import *
 
 dic_moments = OrderedDict([
-              # order   type   attr_name  comment
-                (-1, [("Xin", "X", "X axis coordinate", pixel),
-                      ("Yin", "Y", "Y axis coordinate", pixel)]),
+              # order   mtype   attr_name  comment unit
+                (-10, [("Dummy", "dummy", "Dummy category", pixel)]),
                 (0, [("Flux", "I", "flux [integrated]", Lsun),
                      ("Mass", "M", "mass [integrated]", Msun),
-                     ("DFlux", "Id", "flux density [per unit area]", Lsunpc2),
-                     ("DMass", "Md", "mass density [per unit area]", Msunpc2),]),
+                     ("FluxD", "Id", "flux density [per unit area]", Lsunpc2),
+                     ("MassD", "Md", "mass density [per unit area]", Msunpc2),
+                     ("WeightD", "Wd", "To be used as weights [per unit area]", Lsunpc2),
+                     ("Weight", "W", "To be used as weights [integrated]", Lsun)]),
                 (1, [("Vel", "V", "velocity", kms)]),
                 (2, [("Disp", "S", "dispersion", kms),
-                     ("Mu2", "mu2", "non-centred 2nd order moment", kms2)])
+                     ("Mu2", "Mu2", "non-centred 2nd order moment", kms2)])
                 ])
 
-dic_invert_moments = {}
+dict_invert_moments = {}
 for order in dic_moments.keys():
     for tup in dic_moments[order]:
-        dic_invert_moments[tup[0]] = (order,) + tup[1:]
+        dict_invert_moments[tup[0].lower()] = (order,) + tup[1:]
+
+# List of attributes to use for Maps and DataMaps
+list_Map_attr = ["Xcen", "Ycen", "X", "Y", "name",
+                 "mtype", "XYunit", "pixel_scale",
+                 "NE_direct", "alpha_North", "fill_value", "method",
+                 "overwrite"]
+list_Profile_attr = ["R", "name", "ptype", "nameR", "Runit"]
 
 def get_all_moment_types():
     """Get all types for all moments
@@ -101,7 +110,6 @@ class GalacticDisc(Galaxy):
             verbose: bool [False]
             **kwargs:
                 distance
-                pc_per_arcsec
                 inclin
                 PA_nodes
                 PA_bar
@@ -114,7 +122,11 @@ class GalacticDisc(Galaxy):
         # initialise Maps if any
         self._reset_maps()
         self._reset_profiles()
-        self.add_map(**kwargs)
+
+        self.force_dtypes = kwargs.pop("force_dtypes", True)
+        read_maps = kwargs.pop("read_maps", True)
+        if read_maps:
+            self.add_maps(**kwargs)
 
         # init slicing
         self._reset_slicing()
@@ -180,80 +192,122 @@ class GalacticDisc(Galaxy):
         else:
             return -1
 
-    def add_map(self, comment="", **kwargs):
-        """Adding a Map which can include various keywords like
-        Xin, Yin, Vel, etc.
-        It is important to provide a flag so that the Map has a unique entry
-        in the 'Map' dictionary.
+    def _extract_dmap_info_from_dtype(self, dtype, dname=None):
+        """Extract info using the current kwarg
+        and the list of pre-defined tuples
 
         Args:
-            comment: str
-            **kwargs:
-                name: str
-                    Name of the Map
+            dtype:
+
+        Returns:
+            datamap name, flag, dtype, order, dunit
         """
-        if self.nmaps <= 0:
-            self._reset_maps()
+        dmap_info = {}
+        for tup in get_all_moment_tuples():
+            if dtype == tup[0]:
+                # name of variable and attribute
+                dmap_info['flag'] = ""
+                if dname is None: dname = dtype.replace(tup[0], tup[1])
+                dmap_info['dname'] = dname
+                dmap_info['dtype'] = dtype
+                dmap_info['order'] = dict_invert_moments[tup[0].lower()][0]
+                dmap_info['dunit'] = dict_invert_moments[tup[0].lower()][3]
+                break
+        return dmap_info
 
-        # First scan all the input kwargs to see which data are there
-        # This will set up the attributes which are relevant
-        ref_data_shape = self._get_ref_shape(**kwargs)
-        # if _set_ref_data is not defined, it means we didn't detect
-        # any proper numpy array
-        if ref_data_shape is None:
-            print("WARNING: no Map yet provided - model will be empty")
-            print("       ==> Use model.add_map() to add a Map")
-            return
+    def remove_map(self, name):
+        """Remove map
+        """
+        respop = self.maps.pop(name, None)
 
-        map_name = kwargs.pop("name", "Map{:02d}".format(self.nmaps + 1))
-        if self._has_map(map_name):
-            if not overwrite:
-                print("ERROR[add_map]: trying to overwrite an existing Map. "
-                      "Use overwrite=True if you wish to proceed with this. - Aborting -")
-                return
+    def _analyse_kwargs_tobuild_maps(self, **kwargs):
+        """Analyse kwargs to extract map_kwargs for each
+        associated map.
+
+        Args:
+            **kwargs:
+
+        Returns
+            List of map_kwargs for further processing
+        """
+        # Getting all the suffixes/names for the Maps
+        dict_maps_suffix = ex_suff(kwargs.keys(), list_Map_attr)
+        list_map_kwargs = []
+        # Attaching all detected Maps
+        for suffix_map in dict_maps_suffix.keys():
+            keywords_for_map = dict_maps_suffix[suffix_map]
+            # Initialise the kwargs for Map
+            map_kwargs = {}
+            # First go through all the Map specific keyword
+            for key in keywords_for_map:
+                map_kwargs[key] = kwargs.pop(add_suffix(key, suffix_map, link=""))
+            if 'name' not in map_kwargs.keys():
+                if suffix_map != "":
+                    map_name = suffix_map
+                else:
+                    map_name = "Map{0:02d}".format(self.nmaps + 1)
+            map_kwargs['name'] = map_name
+
+            # Then add the ones for the datamaps
+            # First detect all the datamaps keys for this specific Map
+            list_Data_attr_up = [add_suffix(dattr, suffix_map, link="")
+                                 for dattr in list_Data_attr]
+            # And now get the suffixes for these
+            dict_dmaps_suffix = ex_suff(kwargs.keys(), list_Data_attr_up)
+            for suffix_dmap in dict_dmaps_suffix:
+                list_key_dmap = dict_dmaps_suffix[suffix_dmap]
+                for key_dmap in list_key_dmap:
+                    item = key_dmap.replace(suffix_map, "")
+                    map_kwargs[item] = kwargs.pop(key_dmap, None)
+
+            list_map_kwargs.append(map_kwargs)
+
+        return list_map_kwargs
+
+    def add_maps(self, **kwargs):
+        """Add a set of maps defined via kwargs
+        First by analysing the input kwargs, and then processing
+        them one by one to add the maps
+
+        Args:
+            **kwargs:
+        """
+        list_map_kwargs = self._analyse_kwargs_tobuild_maps(**kwargs)
+        for map_kwargs in list_map_kwargs:
+            self.add_map(**map_kwargs)
+
+    def add_map(self, **kwargs):
+        """Attach a new map from kwargs
+        It forces the datatype to follow the pre-defined keys
+        """
+
+        # If we force predefined types, then go through them
+        # And see if they correspond
+        if self.force_dtypes:
+            if 'dtype' in kwargs.keys():
+                dtype = kwargs.get("dtype")
+                dname = kwargs.get("dname", None)
+                # See if this is within the pre-defined types
+                dmap_info = self._extract_dmap_info_from_dtype(dtype, dname)
+                if len(dmap_info) > 0:
+                    print("WARNING[add_map]: found pre-defined data type {} "
+                          "-> forcing unit, comment and coordinate name".format(dtype))
+                    for key in dmap_info.keys():
+                        kwargs[key] = dmap_info[key]
+                else:
+                    print("WARNING[add_map]: found a dtype which is not pre-defined".format(
+                          dtype))
             else:
-                print("WARNING[add_map]: overwriting existing Map ({}).".format(map_name))
+                print("ERROR[add_map]: force_dtypes is set ON but...")
+                print("ERROR[add_map]: dtype not in kwargs - Aborting")
+                return
 
-        # First initialise the Map with X and Y by reading
-        # Xin and Yin as defined in the dictionary
-        Xin = kwargs.pop(get_moment_type(-1)[0], None)
-        Yin = kwargs.pop(get_moment_type(-1)[1], None)
+        newmap = Map(**kwargs)
+        self.attach_map(newmap)
 
-        # The names of the given X and Y attribute names
-        # are by default defined in the dictionary
-        nameX = get_moment_attr(-1)[0]
-        nameY = get_moment_attr(-1)[1]
-
-        # Now create the corresponding Map
-        newmap = Map(Xin, Yin, nameX=nameX, nameY=nameY,
-                     ref_shape=ref_data_shape, comment=comment,
-                     name=map_name, **kwargs)
-
-        # If we have now a proper Map with a shape
-        # We can add all the provided datamaps
-        all_tuples = get_all_moment_tuples()
-        for kwarg in kwargs:
-            for tup in all_tuples:
-                if kwarg.startswith(tup[0]):
-                    # name of variable and attribute
-                    dmap_flag = kwarg.replace(tup[0], "")
-                    dmap_name = kwarg.replace(tup[0], tup[1])
-                    dmap_type = tup[2]
-                    order = dic_invert_moments[tup[0]][0]
-                    unit = dic_invert_moments[tup[0]][3]
-
-                    # Extracting the kwarg array data and edata
-                    data = kwargs.get(kwarg, None)
-                    edata = kwargs.get(add_err_prefix(kwarg), None)
-
-                    # If data is not None and array
-                    if isinstance(data, np.ndarray):
-                        newmap.add_data(data, order=order, edata=edata,
-                                        data_name=dmap_name, data_flag=dmap_flag,
-                                        data_type=dmap_type, data_unit=unit)
-
+    def attach_map(self, newmap):
         newmap.align_axes(self)
-        self.maps[map_name] = newmap
+        self.maps[newmap.name] = newmap
 
     def _has_map(self, name):
         if self.nmaps <= 0:
@@ -261,29 +315,16 @@ class GalacticDisc(Galaxy):
         else:
             return name in self.maps.keys()
 
-    def _get_datamap(self, map_name, datamap_name=None, order=None):
+    def _get_datamap(self, map_name, dname=None, order=None):
         """Get the datamap from a given Map
         """
         # Get the Map
         ds = self._get_map(map_name)
-        if datamap_name is None:
-            if order is None:
-                # then just get the first map
-                datamap_name = list(ds.datamaps.keys())[0]
-            else:
-                # Then get the first map of right order
-                for key in ds.datamaps.keys():
-                    if ds.datamaps[key].order == order:
-                        datamap_name = key
-                        break
-
-        if hasattr(ds, datamap_name):
-            datamap = getattr(ds, datamap_name)
-        else:
-            print("No such datamap {} in this Map".format(
-               datamap_name))
+        datamap = ds._get_datamap(dname)
+        if datamap is  None:
             return ds, None
-        return ds, datamap
+        else:
+            return ds, datamap
 
     def _get_ref_shape(self, **kwargs):
         # Getting all the input by scanning attribute names
@@ -296,14 +337,13 @@ class GalacticDisc(Galaxy):
                 if data is not None:
                     if isinstance(data, (np.ndarray)):
                         ref_data_shape = data.shape
-                        break
-                    else:
-                        print("WARNING: data {} not a numpy array".format(
-                                kwarg_name))
+                        return ref_data_shape
+                    print("WARNING: data {} not a numpy array".format(
+                          kwarg_name))
 
         return ref_data_shape
 
-    def _get_map(self, map_name=None, type=""):
+    def _get_map(self, map_name=None, mtype=""):
         """
         Args:
             **kwargs:
@@ -314,11 +354,11 @@ class GalacticDisc(Galaxy):
         # if name is None, get the first Map
         if map_name is None :
             for map_name in self.maps.keys():
-                if type in self.maps[map_name].type:
+                if mtype in self.maps[map_name].mtype:
                     break
         return self.maps[map_name]
 
-    def _get_profile(self, profile_name=None, type=""):
+    def _get_profile(self, profile_name=None, ptype=""):
         """
         Args:
             **kwargs:
@@ -326,11 +366,19 @@ class GalacticDisc(Galaxy):
             Either profile_name if provided, otherwise
             just the first profile name.
         """
-        # if name is None, get the first Profile
+        # if name is None, get the first Profile with the right type
         if profile_name is None :
             for profile_name in self.profiles.keys():
-                if type in self.profiles[profile_name].type:
+                if ptype == self.profiles[profile_name].ptype:
                     break
+
+        # if still none
+        if profile_name is None:
+            # If profile_name is still None, get an error raised
+            print("ERROR[_get_profile]: could not get profile_name, "
+                  "even from ptype {}".format(ptype))
+            return None
+
         return self.profiles[profile_name]
 
     def add_vprofile(self, filename=None, filetype="ROTCUR", folder="",
@@ -361,10 +409,10 @@ class GalacticDisc(Galaxy):
                 self._reset_profiles()
             if prof_name is None:
                 prof_name = "Vprof_{:02d}".format(self.nprofiles + 1)
-            self.profiles[prof_name] = Profile(data=Vc, edata=eVc, Rin=R,
-                                          data_name=prof_name, order=1,
-                                          type='vel', data_unit=kms,
-                                          data_type=filetype, **kwargs)
+            self.profiles[prof_name] = Profile(data=Vc, edata=eVc, R=R,
+                                          dname=prof_name, order=1,
+                                          ptype='vel', dunit=kms,
+                                          dtype=filetype, **kwargs)
             if self.verbose:
                 print("Vc file successfully read")
         else:
@@ -388,13 +436,13 @@ class GalacticDisc(Galaxy):
 
         self.profiles[profile_name].deproject_velocities(self.inclin)
 
-    def get_radial_profile(self, map_name, datamap_name=None, order=0):
-        """Get a radial profile from a given map. If datamap_name
+    def get_radial_profile(self, map_name, dname=None, order=0):
+        """Get a radial profile from a given map. If dname
         is None, it will use the first map of order 0.
 
         Args:
             map_name:
-            datamap_name:
+            dname:
             order:
 
         Returns:

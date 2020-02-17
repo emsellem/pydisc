@@ -7,6 +7,7 @@ import os
 
 import numpy as np
 from scipy import stats
+from scipy.spatial import distance, kdtree
 from . import transform
 from . import local_units as lu
 
@@ -27,6 +28,80 @@ class AttrDict(dict):
 
     def __dir__(self):
         return super().__dir__() + [str(k) for k in self.keys()]
+
+def extract_prefixes_from_kwargs(keywords, given_arglist):
+    """Extract list of keywords ending with a prefix
+    assuming they all end with a string belonging to
+    a given list of args
+
+    Attributes
+        keywords: list of str
+            Keywords to test
+        given_arglist: list of str
+            Fixed list of args
+
+    Returns
+        Dictionary with prefixes as keys and list of found
+        args as values
+    """
+    dict_kwarg = {}
+    for arg in given_arglist:
+        # We look for the keywords which starts with one of the arg
+        found_prefixes = [kwarg.replace(arg, "") for key in keywords if key.endswith(arg)]
+        # For all of these, we extract the arg and add it to the dictionary
+        for prefix in found_prefixes:
+            if prefix in dict_kwarg.keys():
+                dict_kwarg[prefix].append(arg)
+            else:
+                dict_kwarg[prefix] = [arg]
+
+    return dict_kwarg
+
+def extract_suffixes_from_kwargs(keywords, given_arglist):
+    """Extract list of keywords starting with a suffix
+    assuming they all start with a string belonging to
+    a given list of args
+
+    Attributes
+        keywords: list of str
+            Keywords to test
+        given_arglist: list of str
+            Fixed list of args
+
+    Returns
+        Dictionary with suffixes as keys and list of found
+        args as values
+    """
+    dict_kwarg = {}
+    # First work out the ambiguous names in the arg list
+    dict_doublet = {}
+    for arg in given_arglist:
+        for arg2 in given_arglist:
+            if arg in arg2 and arg != arg2:
+                # arg is contained in arg2
+                if arg in dict_doublet.keys():
+                    dict_doublet[arg].append(arg2)
+                else:
+                    dict_doublet[arg] = [arg2]
+
+    for arg in given_arglist:
+        if arg in dict_doublet.keys():
+            larg2 = dict_doublet[arg]
+        else:
+            larg2 = ["###"]
+        # We look for the keywords which starts with one of the arg
+        found_suffixes = []
+        for key in keywords:
+            if key.startswith(arg) and not key.startswith(tuple(larg2)):
+                found_suffixes.append(key.replace(arg, ""))
+        # For all of these, we extract the arg and add it to the dictionary
+        for suffix in found_suffixes:
+            if suffix in dict_kwarg.keys():
+                dict_kwarg[suffix].append(arg)
+            else:
+                dict_kwarg[suffix] = [arg]
+
+    return dict_kwarg
 
 # adding prefix
 def add_prefix(name, prefix=None, link=default_prefix_separator):
@@ -225,7 +300,12 @@ def extract_frame(fits_name, pixelsize=1., verbose=True):
 # --------------------------------------------------
 # Functions to help the sampling
 # --------------------------------------------------
-def guess_step(Xin, Yin, index_range=[0,100], verbose=False) :
+
+def guess_stepx(Xin):
+    return np.min([np.min(np.abs(np.diff(Xin, axis=i)))
+                   for i in range(Xin.ndim)])
+
+def guess_stepxy(Xin, Yin, index_range=[0,100], verbose=False) :
     """Guess the step from a 1 or 2D grid
     Using the distance between points for the range of points given by
     index_range
@@ -242,14 +322,24 @@ def guess_step(Xin, Yin, index_range=[0,100], verbose=False) :
     step : guessed step (float)
     """
     # Stacking the first 100 points of the grid and determining the distance
-    stackXY = np.vstack((Xin[index_range[0]:index_range[1]], Yin[index_range[0]:index_range[1]])).T
-    diffXY = distance.cdist(stackXY, stackXY)
-
+    stackXY = np.vstack((Xin.ravel()[index_range[0]: index_range[1]], Yin.ravel()[index_range[0]: index_range[1]]))
+#    xybest = kdtree.KDTree(stackXY).query(stackXY)
+#    step = np.linalg.norm(xybest[1] - xybest[0])
+    diffXY = np.unique(distance.pdist(stackXY.T))
     step = np.min(diffXY[diffXY > 0])
     if verbose:
         print("New step will be %s"%(step))
 
     return step
+
+def cover_linspace(start, end, step):
+    # First compute how many steps we have
+    npix_f = (end - start) / step
+    # Then take the integer part
+    npix = np.int(np.ceil(npix_f))
+    split2 = (npix * step - (end - start)) / 2.
+    # Residual split on the two sides
+    return np.linspace(start - split2, end + split2, npix+1)
 
 def get_extent(Xin, Yin) :
     """Return the extent using the min and max of the X and Y arrays
@@ -258,7 +348,7 @@ def get_extent(Xin, Yin) :
     ------
     [xmin, xmax, ymin, ymax]
     """
-    return [Xin.min(), Xin.max(), Yin.min(), Yin.max()]
+    return [np.min(Xin), np.max(Xin), np.min(Yin), np.max(Yin)]
 
 def get_1d_radial_sampling(rmap, nbins):
     """Get radius values from a radius map
@@ -310,7 +400,7 @@ def extract_radial_profile_fromXY(X, Y, data, nbins=None,
     """
 
     rmap, thetamap = transform.xy_to_polar(X, Y)
-    return extract_radial_profile(rmap, data, nbins=nbins,
+    return extract_radial_profile(rmap, np.nan_to_num(data), nbins=nbins,
                                   thetamap=thetamap,
                                   verbose=verbose, wedge_size=wedge_size,
                                   wedge_angle=wedge_angle)

@@ -50,12 +50,22 @@ class Galaxy(object):
     @property
     def _eq_pc_per_arcsec(self):
         return [(u.pc, u.arcsec,
-                 lambda x: self.pc_per_arcsec * x,
-                 lambda x: x / self.pc_per_arcsec)]
+                 lambda x: x / self.pc_per_arcsec,
+                 lambda x: self.pc_per_arcsec * x)]
 
     def convert_xyunit(self, xyunit, newunit=u.kpc):
         return lu.get_conversion_factor(xyunit, newunit,
                                         equiv=self._eq_pc_per_arcsec)
+
+    def pc_per_xyunit(self, xyunit):
+        """pc per unitXY
+        """
+        return self.convert_xyunit(xyunit, u.pc)[0]
+
+    def pc_per_pixel(self, xyunit, pixel_scale):
+        """pc per pixel
+        """
+        return self.pc_per_xyunit(xyunit) * pixel_scale
 
     @property
     def inclin(self) :

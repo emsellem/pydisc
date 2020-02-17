@@ -10,7 +10,9 @@ __copyright__ = "Eric Emsellem"
 __license__ = "mit"
 
 from astropy import units as u
+from astropy.constants import G as Ggrav_cgs
 
+Ggrav = Ggrav_cgs.to(u.km**2 * u.pc / u.s**2 / u.M_sun)
 # Defining our default units
 pixel = u.pixel
 Lsun = u.Lsun
@@ -32,7 +34,7 @@ def get_conversion_factor(unit, newunit, equiv=[], verbose=True):
         conversion_factor, validated unit
     """
     try:
-        fac = unit.to(newunit, equivalencies=equiv)
+        fac = (1 * unit).to(newunit, equivalencies=equiv).value
         return fac, newunit
     except:
         if verbose:

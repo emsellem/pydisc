@@ -10,9 +10,9 @@ from numpy import deg2rad, rad2deg, cos, sin, arctan, tan, pi
 from scipy.interpolate import griddata as gdata
 from scipy.ndimage.interpolation import rotate, affine_transform
 
-from .misc_io import default_float
+from .misc_io import default_float, guess_stepxy, get_extent
 
-def mirror_grid(self, X, Y) :
+def mirror_grid(X, Y) :
     """Find the mirrored grid (above/below major-axis)
 
     Input
@@ -115,7 +115,7 @@ def regrid_XY(Xin, Yin, newextent=None, newstep=None):
 
     # Get the step and extent
     if newstep is None :
-        newstep = guess_step(Xin, Yin, verbose=verbose)
+        newstep = guess_stepxy(Xin, Yin, verbose=verbose)
     if newextent is None :
         newextent = get_extent(Xin, Yin)
     [Xmin, Xmax, Ymin, Ymax] = newextent
@@ -124,7 +124,7 @@ def regrid_XY(Xin, Yin, newextent=None, newstep=None):
     nX, nY = np.int(dX / newstep + 1), np.int(dY / newstep + 1)
     Xnewgrid, Ynewgrid = np.meshgrid(np.linspace(Xmin, Xmax, nX),
                                      np.linspace(Ymin, Ymax, nY))
-    return newextent, Xnewgrid, Ynewgrid
+    return newextent, newstep, Xnewgrid, Ynewgrid
 # --------------------------------------------------
 # Resampling X, Y and Z (first regrid X, Y)
 # --------------------------------------------------
@@ -139,7 +139,8 @@ def regrid_XYZ(Xin, Yin, Zin, newextent=None, newstep=None,
     grid and interpolated values
     """
 
-    newextent, newX, newY = regrid_XY(Xin, Yin, newextent, newstep)
+    if Zin is None: return None
+    newextent, newstep, newX, newY = regrid_XY(Xin, Yin, newextent, newstep)
     newZ = regrid_Z(Xin, Yin, Zin, newX, newY,
                     fill_value=fill_value, method=method)
     return newextent, newX, newY, newZ
@@ -157,7 +158,8 @@ def regrid_Z(Xin, Yin, Zin, newX, newY, fill_value=np.nan, method='linear') :
     grid and interpolated values
     """
 
-    newZ = gdata(np.vstack((Xin, Yin)).T, Zin,
+    if Zin is None: return None
+    newZ = gdata(np.vstack((Xin.ravel(), Yin.ravel())).T, Zin.ravel(),
                  np.vstack((newX.ravel(), newY.ravel())).T,
                  fill_value=fill_value, method=method)
     return newZ.reshape(newX.shape)
