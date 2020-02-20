@@ -14,8 +14,8 @@ import astropy.units as u
 
 # Float
 from .misc_io import add_suffix, default_float, add_err_prefix
-from .misc_io import extract_suffixes_from_kwargs
-from .misc_io import AttrDict, remove_suffix
+from .misc_io import extract_suffixes_from_kwargs as ex_suff
+from .misc_io import AttrDict, remove_suffix, default_suffix_separator
 from . import check, transform
 from . import local_units as lu
 
@@ -187,14 +187,19 @@ class Map(object):
         # We assume that by default the units are the default arcsec
         self.XYunit = kwargs.pop("XYunit", dict_units['XY'])
 
+        self._dmap_separator = kwargs.pop("dmap_separator",
+                                          default_suffix_separator)
         # Get the list of suffixes which will be used to attach datasets
-        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
-                                                           list_Data_attr)
+        dict_data_suffix = ex_suff(kwargs.keys(), list_Data_attr,
+                                   separator=default_suffix_separator)
         suffix_data = None
         for suffix in dict_data_suffix.keys():
             if "data" in dict_data_suffix[suffix]:
                 suffix_data = suffix
-                data = kwargs.get("data" + suffix_data)
+                if suffix == "":
+                    data = kwargs.get("data")
+                else:
+                    data = kwargs.get("data" + self._dmap_separator + suffix_data)
                 break
 
         # First getting the shape of the data
@@ -239,28 +244,45 @@ class Map(object):
         self.mtype = mtype
         self.overwrite = kwargs.pop("overwrite", False)
 
-        self.add_datamaps_from_kwargs(**kwargs)
+        self.add_datamaps(**kwargs)
 
-    def add_datamaps_from_kwargs(self, **kwargs):
+    def add_datamaps(self, **kwargs):
+        """Add a set of datamaps defined via kwargs
+        First by analysing the input kwargs, and then processing
+        them one by one to add the datamaps
+
+        Args:
+            **kwargs:
+        """
+        list_dmap_kwargs = self._analyse_kwargs_tobuild_dmaps(**kwargs)
+        for dmap_kwargs in list_dmap_kwargs:
+            self.add_data(**dmap_kwargs)
+
+    def _analyse_kwargs_tobuild_dmaps(self, **kwargs):
         """Process the list of kwargs to extract datamaps
         and attach them
         Attributes
             **kwargs
         """
-        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
-                                                           list_Data_attr)
+        dict_data_suffix = ex_suff(kwargs.keys(), list_Data_attr,
+                                   self._dmap_separator)
+        list_dmap_kwargs = []
         # Attaching all detected datamaps
         for suffix in dict_data_suffix.keys():
             key_list = dict_data_suffix[suffix]
             mykwargs = {}
             for key in key_list:
-                mykwargs[key] = kwargs.pop(add_suffix(key, suffix, link=""), None)
+                mykwargs[key] = kwargs.pop(add_suffix(key, suffix,
+                                                      link=self._dmap_separator),
+                                           None)
             if not 'flag' in key_list:
                 mykwargs['flag'] = "datamap{0:02d}".format(len(self.dmaps) + 1)
             if not 'dname' in key_list:
                 if suffix != "":
                     mykwargs['dname'] = suffix
-            self.add_data(**mykwargs)
+            list_dmap_kwargs.append(mykwargs)
+
+        return list_dmap_kwargs
 
     def __getattr__(self, name):
         for suffix in default_data_names:
@@ -403,7 +425,8 @@ class Map(object):
             dunit: astropy unit
         """
         if data is None:
-            print("WARNING[attach_data]: cannot attach data: it is 'None'")
+            print("WARNING[attach_data/Map]: cannot attach data: "
+                  "it is 'None' (name is {})".format(dname))
             return
 
         overwrite = kwargs.pop("overwrite", self.overwrite)
@@ -614,14 +637,17 @@ class Profile(object):
         self.Runit = kwargs.pop("Runit", dict_units['R'])
         self.pixel_scale = kwargs.pop("pixel_scale", 1.)
 
+        self._dprof_separator = kwargs.pop("dprof_separator",
+                                           default_suffix_separator)
         # Get the list of suffixes which will be used to attach datasets
-        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
-                                                           list_Data_attr)
+        dict_data_suffix = ex_suff(kwargs.keys(), list_Data_attr,
+                                   self._dprof_separator)
         suffix_data = None
         for suffix in dict_data_suffix.keys():
             if "data" in dict_data_suffix[suffix]:
                 suffix_data = suffix
-                data = kwargs.get("data" + suffix_data)
+                data = kwargs.get("data" + self._dprof_separator
+                                  + suffix_data)
                 break
 
         # First getting the shape of the data
@@ -664,14 +690,16 @@ class Profile(object):
         Attributes
             **kwargs
         """
-        dict_data_suffix = extract_suffixes_from_kwargs(kwargs.keys(),
-                                                           list_Data_attr)
+        dict_data_suffix = ex_suff(kwargs.keys(), list_Data_attr,
+                                   self._dprof_separator)
         # Attaching all detected data profiles
         for suffix in dict_data_suffix.keys():
             key_list = dict_data_suffix[suffix]
             mykwargs = {}
             for key in key_list:
-                mykwargs[key] = kwargs.pop(add_suffix(key, suffix, link=""), None)
+                mykwargs[key] = kwargs.pop(add_suffix(key, suffix,
+                                                      link=self._dprof_separator),
+                                           None)
             if not 'flag' in key_list:
                 mykwargs['flag'] = "dataprof{0:02d}".format(len(self.dprofiles) + 1)
             if not 'dname' in key_list:
@@ -746,9 +774,9 @@ class Profile(object):
             dname = "prof{0:02d}".format(len(self.dprofiles)+1)
 
         if self._has_profile(dname) and not overwrite:
-            print("WARNING[add_data]: data profile {} already exists "
+            print("WARNING[add_data/profile]: data profile {} already exists "
                   "- Aborting".format(dname))
-            print("WARNING[add_data]: use overwrite option to force.")
+            print("WARNING[add_data/profile]: use overwrite option to force.")
             return
 
         self.attach_dataprofile(DataProfile(data, edata, order=order,

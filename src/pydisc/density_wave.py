@@ -3,7 +3,6 @@
 This provides the Density Wave functionalities, as a class inheriting from GalacticDisc
 """
 import numpy as np
-import os
 
 __author__ = "Eric Emsellem"
 __copyright__ = "Eric Emsellem"
@@ -13,6 +12,7 @@ from .disc import GalacticDisc
 from .disc_data import Slicing
 from .misc_io import add_suffix
 from .plotting import show_tw
+from .check import _none_tozero_array
 
 # Units
 from . import local_units as lu
@@ -52,23 +52,23 @@ class DensityWave(GalacticDisc):
         self.deproject_velocities(map_name)
         ds.align_xy_deproj_bar(self)
 
-        ## Mirroring the Velocities
+        # Mirroring the Velocities
         ds.V_mirror = gdata(np.vstack((ds.X.ravel(), ds.Y.ravel())).T,
                                  ds.Vdep.ravel(),
                                  (ds.X_mirror, ds.Y_mirror),
                                  fill_value=ds._fill_value, method=ds._method)
         ds.gamma_rad = np.arctan2(ds.Y_bardep, ds.X_bardep)
-        ds.Vr = (ds.Vdep * cos(self._PA_barlon_dep_rad - ds.gamma_rad)
-                - ds.V_mirror * cos(self._PA_barlon_dep_rad + ds.gamma_rad)) \
-                  / sin(2.* self._PA_barlon_dep_rad)
-        ds.Vt = (ds.Vdep * sin(self._PA_barlon_dep_rad - ds.gamma_rad)
-                + ds.V_mirror * sin(self._PA_barlon_dep_rad + ds.gamma_rad)) \
-                  / sin(2.* self._PA_barlon_dep_rad)
+        ds.Vr = (ds.Vdep * cos(self._PAbar_londep_rad - ds.gamma_rad)
+                - ds.V_mirror * cos(self._PAbar_londep_rad + ds.gamma_rad)) \
+                  / sin(2.* self._PAbar_londep_rad)
+        ds.Vt = (ds.Vdep * sin(self._PAbar_londep_rad - ds.gamma_rad)
+                + ds.V_mirror * sin(self._PAbar_londep_rad + ds.gamma_rad)) \
+                  / sin(2.* self._PAbar_londep_rad)
         ds.Vx = ds.Vr * cos(ds.gamma_rad) - ds.Vt * sin(ds.gamma_rad)
         ds.Vy = ds.Vr * sin(ds.gamma_rad) + ds.Vt * cos(ds.gamma_rad)
 
     def tremaine_weinberg(self, slit_width=1.0, map_name=None,
-                          flag=None, **kwargs):
+                          **kwargs):
         """ Apply the standard Tremaine Weinberg to the disc Map.
 
         Using X_lon, Y_lon, Flux and Velocity
@@ -77,18 +77,32 @@ class DensityWave(GalacticDisc):
         -----
         slit_width : float [1.0]
             Slit width in arcseconds.
+        Fdataname: str ['flux']
+        Vdataname: str ['vel']
+            names of the datamaps where to find the tracer (flux or mass)
+            and velocities
         """
+        # Getting the map from the name. If name is None, use the 1st one
         ds = self._get_map(map_name)
+        # Align the axes
         ds.align_xy_lineofnodes(self)
+        # Get the unit for X, Y
         uXY = ds.XYunit
 
-        Iname = kwargs.pop("Iname", add_suffix("I", flag))
-        Vname = kwargs.pop("Vname", add_suffix("V", flag))
-
-        Imap = ds.dmaps[Iname]
+        # Getting the maps (tracer flux, and velocities)
+        Fname = kwargs.pop("Fdataname", "flux")
+        Vname = kwargs.pop("Vdataname", "vel")
+        Fmap = ds.dmaps[Fname]
         Vmap = ds.dmaps[Vname]
-        Flux, eFlux, uFlux = Imap.data, Imap.edata, Imap.unit
-        Vel, eVel, uVel = Vmap.data, Vmap.edata, Vmap.unit
+        Flux, eFlux, uFlux = Fmap.data, Fmap.edata, Fmap.dunit
+        Vel, eVel, uVel = Vmap.data, Vmap.edata, Vmap.dunit
+
+        # Check the uncertainties if not given
+        eVel = _none_tozero_array(eVel, Vel)
+        eFlux = _none_tozero_array(eFlux, Flux)
+        if eVel is None or eFlux is None:
+            print("ERROR: could not format error array - Aborting")
+            return
 
         # Converting X in kpc
         fac_kpc, newXY_unit = self.convert_xyunit(uXY)
@@ -105,6 +119,8 @@ class DensityWave(GalacticDisc):
         fV_err = fV * np.sqrt((eFlux / Flux)**2 + (eVel / Vel)**2)
 
         ds_slits = Slicing(yin=ds.Y_lon, slit_width=slit_width)
+        ds_slits.Fname = Fname
+        ds_slits.Vname = Vname
         # Digitize the Y coordinates along the slits and minus 1 to be at the boundary
         dig = np.digitize(ds.Y_lon, ds_slits.yedges).ravel() - 1
         # Select out points which are out of the edges

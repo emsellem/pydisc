@@ -102,7 +102,7 @@ class TorqueMap(object):
         self.r_mean, self.v_mean, self.torque_mean, self.torque_mean_w, \
                 self.ang_mom_mean, self.dl, self.dm, self.dm_sum = \
                 gpot.get_torque(self.Xdep_pc, self.Ydep_pc, self.VcU, self.Fx, self.Fy,
-                                self.mass.data_Wd, n_rbins=n_rbins)
+                                self.mass.data_WeightD, n_rbins=n_rbins)
 
     def run_torques(self, softening=0.0, func_kernel="sech2", n_rbins=50):
         """Running the torque calculation from start to end
@@ -138,7 +138,7 @@ class TorqueMap(object):
         # Step 8 - Calculate the torques
         self.get_torques(n_rbins=n_rbins)
 
-class GalaxyTorques(GalacticDisc):
+class GalacticTorque(GalacticDisc):
     """Class for functionalities associated with Torques
     """
 
@@ -156,7 +156,7 @@ class GalaxyTorques(GalacticDisc):
         self.verbose = kwargs.pop("verbose", False)
 
         # Using GalacticDisc class attributes
-        super().__init__(read_maps=False, **kwargs)
+        super().__init__(read_maps=False, force_dtypes=False, **kwargs)
 
         # Look for the reference X, Y
         self._get_XY(**kwargs)
@@ -202,6 +202,8 @@ class GalaxyTorques(GalacticDisc):
 
     def add_components(self, **kwargs):
         """Decipher the new components and add them
+        The only thing is to convert the pre-defined map keys into
+        the right types
         """
         # Loop over the potential names for mass and gas maps
         list_map_kwargs  = self._analyse_kwargs_tobuild_maps(**kwargs)
@@ -213,8 +215,10 @@ class GalaxyTorques(GalacticDisc):
             for key in dict_torques_datanames.keys():
                 if map_name.startswith(key):
                     mtype = key
+                    break
             if mtype is not None:
                 dtype = dict_torques_datanames[map_name]
+                # Forcing the mtype
                 map_kwargs['mtype'] = mtype
                 # Change to density map if not already the case
                 if not _is_density(dtype):
@@ -229,7 +233,7 @@ class GalaxyTorques(GalacticDisc):
                             map_kwargs['edata'] /= scalepc2
 
                     map_kwargs['dtype'] = _add_density_suffix(dtype)
-                self.add_map(**map_kwargs)
+                self.add_maps(**map_kwargs)
             else:
                 print("ERROR: map name not in dictionary {}"
                       "- Not adding this Map".format(map_name))
@@ -294,7 +298,8 @@ class GalaxyTorques(GalacticDisc):
         mykwargs["data"] = newmass_data
         mykwargs["edata"] = newmass_edata
         # Adding the gridded mass map
-        self.add_map(name=name_mass, order=0, mtype=type_mass,
+        print("INFO[torques/match]: attaching the mass map")
+        self.add_maps(name=name_mass, order=0, mtype=type_mass,
                      X=Xn, Y=Yn, dtype=dtype_mass, flag=mass_map.flag,
                      dname=mass_map.name, **mykwargs)
 
@@ -303,6 +308,7 @@ class GalaxyTorques(GalacticDisc):
 
         dmap_info = self._extract_dmap_info_from_dtype(dtype_gas)
         # Adding the gas data
+        print("INFO[torques/match]: attaching the data for the gas datamap")
         self.maps[name_mass].add_data(newgas_data, order=dmap_info['order'],
                           edata=newgas_edata, dname=dmap_info['dname'],
                           flag=dmap_info['flag'],

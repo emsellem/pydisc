@@ -19,11 +19,13 @@ from .galaxy import Galaxy
 from .disc_data import Map, Profile, list_Data_attr
 from .misc_io import add_err_prefix, add_suffix, AttrDict, read_vc_file
 from .misc_io import extract_suffixes_from_kwargs as ex_suff
+from .misc_io import default_suffix_separator
 from .local_units import *
 
 dic_moments = OrderedDict([
-              # order   mtype   attr_name  comment unit
+              # order   dtype   attr_name  comment unit
                 (-10, [("Dummy", "dummy", "Dummy category", pixel)]),
+                (-1, [("Other", "other", "Any category", pixel)]),
                 (0, [("Flux", "I", "flux [integrated]", Lsun),
                      ("Mass", "M", "mass [integrated]", Msun),
                      ("FluxD", "Id", "flux density [per unit area]", Lsunpc2),
@@ -72,7 +74,7 @@ def get_moment_type(order):
     ----
     order: int
     """
-    return [defset[0] for defset in dic_moments[order]]
+    return [defset[0].lower() for defset in dic_moments[order]]
 
 def get_moment_attr(order):
     """Returns all potential attribute names for this order
@@ -111,8 +113,8 @@ class GalacticDisc(Galaxy):
             **kwargs:
                 distance
                 inclin
-                PA_nodes
-                PA_bar
+                PAnodes
+                PAbar
         """
         self.verbose = kwargs.pop("verbose", False)
 
@@ -137,6 +139,10 @@ class GalacticDisc(Galaxy):
             return self.slicings[list(self.slicings.keys())[0]]
         else:
             return {}
+
+    @property
+    def _list_valid_dtypes(self):
+        return get_all_moment_types()
 
     def _get_slicing(self, slicing_name):
         if slicing_name is None:
@@ -204,14 +210,15 @@ class GalacticDisc(Galaxy):
         """
         dmap_info = {}
         for tup in get_all_moment_tuples():
-            if dtype == tup[0]:
+            thistype = tup[0].lower()
+            if dtype.lower() == thistype:
                 # name of variable and attribute
                 dmap_info['flag'] = ""
-                if dname is None: dname = dtype.replace(tup[0], tup[1])
+                if dname is None: dname = dtype.replace(thistype, tup[1].lower())
                 dmap_info['dname'] = dname
                 dmap_info['dtype'] = dtype
-                dmap_info['order'] = dict_invert_moments[tup[0].lower()][0]
-                dmap_info['dunit'] = dict_invert_moments[tup[0].lower()][3]
+                dmap_info['order'] = dict_invert_moments[thistype][0]
+                dmap_info['dunit'] = dict_invert_moments[thistype][3]
                 break
         return dmap_info
 
@@ -246,7 +253,7 @@ class GalacticDisc(Galaxy):
                     map_name = suffix_map
                 else:
                     map_name = "Map{0:02d}".format(self.nmaps + 1)
-            map_kwargs['name'] = map_name
+                map_kwargs['name'] = map_name
 
             # Then add the ones for the datamaps
             # First detect all the datamaps keys for this specific Map
@@ -254,11 +261,41 @@ class GalacticDisc(Galaxy):
                                  for dattr in list_Data_attr]
             # And now get the suffixes for these
             dict_dmaps_suffix = ex_suff(kwargs.keys(), list_Data_attr_up)
-            for suffix_dmap in dict_dmaps_suffix:
-                list_key_dmap = dict_dmaps_suffix[suffix_dmap]
-                for key_dmap in list_key_dmap:
-                    item = key_dmap.replace(suffix_map, "")
-                    map_kwargs[item] = kwargs.pop(key_dmap, None)
+            # Remove suffixes which contain another map suffix
+            for suffix_dmap in dict_dmaps_suffix.keys():
+                list_dmap_arg = dict_dmaps_suffix[suffix_dmap]
+                if suffix_dmap == "" :
+                    name_dmap = suffix_map
+                elif suffix_dmap[0] != default_suffix_separator:
+                    continue
+                else:
+                    name_dmap = suffix_dmap[1:]
+
+                for key_dmap in list_dmap_arg:
+                    # Pass on that argument
+                    this_arg = key_dmap + suffix_dmap
+                    new_arg = key_dmap.replace(suffix_map, "") + suffix_dmap
+                    map_kwargs[new_arg] = kwargs.get(this_arg, None)
+
+                if self.force_dtypes:
+                    if 'dtype' not in list_dmap_arg:
+                        if name_dmap.lower() not in self._list_valid_dtypes:
+                            print("WARNING[analyse_maps]: this map has no recognised "
+                                  "suffix name ({}) - Skipped".format(suffix_dmap))
+                            continue
+                        else:
+                            dtype = name_dmap
+                    else:
+                        dtype = kwargs.get('dtype' + suffix_map + suffix_dmap)
+                        if dtype.lower() not in self._list_valid_dtypes:
+                            print("WARNING[analyse_maps]: this map has no recognised dtype ({}) - Skipped".format(dtype))
+                            continue
+                    dmap_info = self._extract_dmap_info_from_dtype(dtype, name_dmap)
+                    # Overwriting the info about name and dtype
+                    for key_dmap in dmap_info.keys():
+                        # Pass on that argument
+                        this_arg = key_dmap + suffix_map + suffix_dmap
+                        map_kwargs[this_arg] = dmap_info[key_dmap]
 
             list_map_kwargs.append(map_kwargs)
 
@@ -274,38 +311,18 @@ class GalacticDisc(Galaxy):
         """
         list_map_kwargs = self._analyse_kwargs_tobuild_maps(**kwargs)
         for map_kwargs in list_map_kwargs:
-            self.add_map(**map_kwargs)
-
-    def add_map(self, **kwargs):
-        """Attach a new map from kwargs
-        It forces the datatype to follow the pre-defined keys
-        """
-
-        # If we force predefined types, then go through them
-        # And see if they correspond
-        if self.force_dtypes:
-            if 'dtype' in kwargs.keys():
-                dtype = kwargs.get("dtype")
-                dname = kwargs.get("dname", None)
-                # See if this is within the pre-defined types
-                dmap_info = self._extract_dmap_info_from_dtype(dtype, dname)
-                if len(dmap_info) > 0:
-                    print("WARNING[add_map]: found pre-defined data type {} "
-                          "-> forcing unit, comment and coordinate name".format(dtype))
-                    for key in dmap_info.keys():
-                        kwargs[key] = dmap_info[key]
-                else:
-                    print("WARNING[add_map]: found a dtype which is not pre-defined".format(
-                          dtype))
-            else:
-                print("ERROR[add_map]: force_dtypes is set ON but...")
-                print("ERROR[add_map]: dtype not in kwargs - Aborting")
-                return
-
-        newmap = Map(**kwargs)
-        self.attach_map(newmap)
+            self.attach_map(Map(**map_kwargs))
 
     def attach_map(self, newmap):
+        """Attaching the map newmap
+
+        Args:
+            newmap:
+
+        Returns:
+
+        """
+        print("INFO: attaching map {}".format(newmap.name))
         newmap.align_axes(self)
         self.maps[newmap.name] = newmap
 

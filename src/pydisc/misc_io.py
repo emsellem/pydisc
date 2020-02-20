@@ -29,6 +29,7 @@ class AttrDict(dict):
     def __dir__(self):
         return super().__dir__() + [str(k) for k in self.keys()]
 
+
 def extract_prefixes_from_kwargs(keywords, given_arglist):
     """Extract list of keywords ending with a prefix
     assuming they all end with a string belonging to
@@ -57,7 +58,7 @@ def extract_prefixes_from_kwargs(keywords, given_arglist):
 
     return dict_kwarg
 
-def extract_suffixes_from_kwargs(keywords, given_arglist):
+def extract_suffixes_from_kwargs(keywords, given_arglist, separator=""):
     """Extract list of keywords starting with a suffix
     assuming they all start with a string belonging to
     a given list of args
@@ -93,7 +94,10 @@ def extract_suffixes_from_kwargs(keywords, given_arglist):
         found_suffixes = []
         for key in keywords:
             if key.startswith(arg) and not key.startswith(tuple(larg2)):
-                found_suffixes.append(key.replace(arg, ""))
+                if key == arg:
+                    found_suffixes.append(key.replace(arg, ""))
+                else:
+                    found_suffixes.append(key.replace(arg + separator, ""))
         # For all of these, we extract the arg and add it to the dictionary
         for suffix in found_suffixes:
             if suffix in dict_kwarg.keys():
@@ -149,7 +153,7 @@ def add_suffix(name, suffix=None, link=default_suffix_separator):
     Returns:
         new name with suffix
     """
-    if suffix is None:
+    if suffix is None or suffix=="":
         return name
     else:
         return "{0}{1}{2}".format(name, link, suffix)
@@ -302,8 +306,8 @@ def extract_frame(fits_name, pixelsize=1., verbose=True):
 # --------------------------------------------------
 
 def guess_stepx(Xin):
-    return np.min([np.min(np.abs(np.diff(Xin, axis=i)))
-                   for i in range(Xin.ndim)])
+    pot_step = np.array([np.min(np.abs(np.diff(Xin, axis=i))) for i in range(Xin.ndim)])
+    return np.min(pot_step[pot_step > 0.])
 
 def guess_stepxy(Xin, Yin, index_range=[0,100], verbose=False) :
     """Guess the step from a 1 or 2D grid

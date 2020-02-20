@@ -98,3 +98,21 @@ def _check_ifnD(list_arrays, ndim=1) :
         return False
 
     return all(np.ndim(myarray) == ndim for myarray in list_arrays)
+
+def _none_tozero_array(inarray, refarray):
+    """Repair an array which is None with one which is not
+    by just buiding zeros
+
+    Attributes
+        inarray: numpy array
+        refarray: numpy array
+    """
+    if inarray is None:
+        if _check_ifarrays([refarray]):
+            inarray = np.zeros_like(refarray)
+    else:
+        if not _check_ifarrays([inarray]):
+            inarray = None
+
+    return inarray
+
