@@ -65,7 +65,7 @@ def get_potential(mass, gravpot_kernel):
     # G in (km/s)^2 / Msun / pc
     return -Ggrav.value * convolve_fft(mass, gravpot_kernel)
 
-def get_forces(xpc, ypc, gravpot):
+def get_forces(xpc, ypc, gravpot, PAx=0):
     """Calculation of the forces
     """
     # Force from the gradient of the potential
@@ -79,8 +79,9 @@ def get_forces(xpc, ypc, gravpot):
     stepy_pc = guess_stepx(ypc)
 
     # Force components in X and Y
-    Fx = F_grad[1] / stepx_pc
-    Fy = F_grad[0] / stepy_pc
+    PAx_rad = np.deg2rad(PAx)
+    Fx = ( np.cos(PAx_rad) * F_grad[1] + np.sin(PAx_rad) * F_grad[0]) / stepx_pc
+    Fy = (-np.sin(PAx_rad) * F_grad[1] + np.cos(PAx_rad) * F_grad[0]) / stepy_pc
 
     # Radial force vector in outward direction
     Frad =  Fx * np.cos(theta_rad) + Fy * np.sin(theta_rad)
@@ -101,11 +102,17 @@ def get_vrot_from_force(rpc, Frad):
     # If Frad in (km/s)^2 / pc, so that we return km/s
     return np.sqrt(np.abs(rpc * Frad))
 
-def get_torque(xpc, ypc, vel, Fx, Fy, weights, n_rbins=50):
+def get_torque(xpc, ypc, Fx, Fy):
+    return (xpc * Fy - ypc * Fx)
+
+def get_weighted_torque(xpc, ypc, Fx, Fy, weights):
+    return get_torque(xpc, ypc, Fx, Fy) * weights
+
+def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100):
     """Calculation of the gravity torques
     """
     # Torque is just Deprojected_Gas * (X * Fy - y * Fx)
-    torque = ((xpc * Fy - ypc * Fx) * weights).ravel()
+    torque_w = get_weighted_torque(xpc, ypc, Fx, Fy, weights).ravel()
     goodw = (weights > 0.).ravel()
 
     # Average over azimuthal angle and normalization
@@ -115,7 +122,7 @@ def get_torque(xpc, ypc, vel, Fx, Fy, weights, n_rbins=50):
     # And now binning with the various weights
     # Torque
     weights_mean = stats.binned_statistic(rpc[goodw], weights.ravel()[goodw], statistic='mean', bins=rsamp)
-    torque_mean = stats.binned_statistic(rpc[goodw], torque[goodw], statistic='mean', bins=rsamp)
+    torque_mean = stats.binned_statistic(rpc[goodw], torque_w[goodw], statistic='mean', bins=rsamp)
     torque_mean_w = torque_mean[0] / weights_mean[0]
 
     # Angular momentum
@@ -132,5 +139,5 @@ def get_torque(xpc, ypc, vel, Fx, Fy, weights, n_rbins=50):
     # Mass inflow/outflow integrated over a certain radius R
     dm_sum = np.cumsum(dm) * stepr
 
-    return r_mean[0], vel_mean[0], torque_mean[0], torque_mean_w[0], ang_mom_mean, dl, dm, dm_sum
+    return r_mean[0], vel_mean[0], torque_mean[0], torque_mean_w, ang_mom_mean, dl, dm, dm_sum
 

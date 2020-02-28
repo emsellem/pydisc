@@ -26,7 +26,7 @@ dic_moments = OrderedDict([
          ("Weight", "INT", "To be used as weights [integrated]", lu.Lsun),
         ("CompD", "DENS", "To be used as density component [per unit area]", lu.Lsunpc2),
         ("Comp", "INT", "To be used as component [integrated]", lu.Lsun)]),
-(1, [("Vel", "NA", "velocity", lu.kms)]),
+    (1, [("Vel", "NA", "velocity", lu.kms)]),
     (2, [("Disp", "NA", "dispersion", lu.kms),
          ("Mu2", "NA", "non-centred 2nd order moment", lu.kms2)])
 ])

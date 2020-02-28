@@ -75,6 +75,9 @@ class GalacticDisc(Galaxy):
         # Adding the maps
         self.add_maps(**kwargs)
 
+        # Adding the maps
+        self.add_profiles(**kwargs)
+
         # init slicing
         self._reset_slicing()
 
@@ -203,7 +206,7 @@ class GalacticDisc(Galaxy):
         Args:
             **kwargs:
         """
-        list_prof_kwargs = analyse_profiles_kwargs(reference_list=list_Profile_attr,
+        list_prof_kwargs = analyse_maps_kwargs(reference_list=list_Profile_attr,
                                                   **kwargs)
         for name_prof, prof_kwargs in list_prof_kwargs.items():
             prof_kwargs["force_dtype"] = self._force_dtype

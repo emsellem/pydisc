@@ -17,7 +17,7 @@ from . import gravpot_functions as gpot
 
 class TorqueMap(object):
     def __init__(self, massmap, mass_dname, comp_dname,
-                 velprof, vel_dname, fac_pc=1.0):
+                 velprof, vel_dname, fac_pc=1.0, PAnodes=0.0):
         self.massmap = massmap
         self.mass_dname = mass_dname
         self.comp_dname = comp_dname
@@ -38,6 +38,7 @@ class TorqueMap(object):
         self.Rdep_pc = self.Rdep * self.fac_pc
         self.pixel_scale = self.massmap.pixel_scale
         self.pc_per_pixel = self.pixel_scale * self.fac_pc
+        self.PAnodes = PAnodes
 
     def get_mass_profile(self):
         """Compute the 1d mass profile
@@ -76,30 +77,47 @@ class TorqueMap(object):
     def get_forces(self):
         """Calculate the forces from the potential
         """
-        self.Fgrad, self.Fx, self.Fy, self.Frad, self.Ftan = gpot.get_forces(self.Xdep * self.fac_pc,
-                                                                             self.Ydep * self.fac_pc,
-                                                                             self.gravpot)
+        self.Fgrad, self.Fx, self.Fy, self.Frad, self.Ftan = \
+            gpot.get_forces(self.Xdep * self.fac_pc, self.Ydep * self.fac_pc,
+                            self.gravpot, self.PAnodes+90.0)
+
     def get_vrot_from_forces(self):
         """Calculate the velocities from forces
         """
         self.VcU = gpot.get_vrot_from_force(self.Rdep_pc, self.Frad)
 
-    def get_torques(self, n_rbins=50):
+    def get_torque_map(self):
+        """Compute the torque map
+        """
+        self.torque_map = gpot.get_torque(self.Xdep_pc, self.Ydep_pc,
+                                          self.Fx, self.Fy)
+
+    def get_weighted_torque_map(self):
+        """Compute the torque map
+        """
+        self.torque_w_map = gpot.get_weighted_torque(self.Xdep_pc, self.Ydep_pc,
+                                          self.Fx, self.Fy, self.dcomp.data)
+
+    def get_torque_profiles(self, n_rbins=200):
+        """Get the profiles from the torque
+        """
+        self.r_mean, self.v_mean, self.torque_mean, self.torque_mean_w, \
+            self.ang_mom_mean, self.dl, self.dm, self.dm_sum = \
+            gpot.get_torque_profiles(self.Xdep_pc, self.Ydep_pc, self.VcU,
+                                     self.Fx, self.Fy, self.dcomp.data,
+                                     n_rbins=n_rbins)
+
+    def get_torques(self, n_rbins=200):
         """Calculate the torques from existing forces
 
         Args:
             n_rbins:
-
-        Returns:
-
         """
-        self.r_mean, self.v_mean, self.torque_mean, self.torque_mean_w, \
-                self.ang_mom_mean, self.dl, self.dm, self.dm_sum = \
-                gpot.get_torque(self.Xdep_pc, self.Ydep_pc, self.VcU,
-                                self.Fx, self.Fy, self.dcomp.data,
-                                n_rbins=n_rbins)
+        self.get_torque_map()
+        self.get_weighted_torque_map()
+        self.get_torque_profiles(n_rbins=n_rbins)
 
-    def run_torques(self, softening=0.0, func_kernel="sech2", n_rbins=50):
+    def run_torques(self, softening=0.0, func_kernel="sech2", n_rbins=200):
         """Running the torque calculation from start to end
 
         Args:
@@ -307,7 +325,7 @@ class GalacticTorque(GalacticDisc):
                   "associated with the same map {}".format(self.mass_mname))
 
     def run_torques(self, torquemap_name=None, softening=0, func_kernel="sech2",
-                    n_rbins=50, **kwargs):
+                    n_rbins=200, **kwargs):
         """Running the torques recipes
 
         Args:
@@ -336,7 +354,8 @@ class GalacticTorque(GalacticDisc):
 
         # Defining the structure in which the torques will be calculated
         newT = TorqueMap(self.massmap, self.mass_dname, self.comp_dname,
-                         self.velprof, self.vel_dname, fac_pc=fac_pc)
+                         self.velprof, self.vel_dname, fac_pc=fac_pc,
+                         PAnodes=self.PAnodes)
 
         # Running the torque calculation
         newT.run_torques(softening=softening, n_rbins=n_rbins,

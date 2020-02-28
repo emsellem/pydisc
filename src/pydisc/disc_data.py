@@ -694,6 +694,7 @@ class Profile(object):
         self.pname = pname
         self.ptype = ptype
         self.overwrite = kwargs.pop("overwrite", False)
+        self._force_dtype = kwargs.pop("force_dtype", False)
 
         # Add each datamap one by one
         for dname, dprof_kwargs in dict_dprofs.items():
@@ -705,21 +706,24 @@ class Profile(object):
             self.interpolate(newstep=Rfinestep)
 
     @property
-    def eq_pscale(self):
-        return u.pixel_scale(self.pixel_scale * self.Runit / u.pixel)
-
-    @property
-    def scale_runit(self):
-        return (1. * self.Runit).to(dict_units['R'],
-                                     self.eq_pscale).value
+    def _get_pixel_scale(self):
+        return (1. * u.pixel).to(self.Runit, equivalencies=self.eq_pscale).value
 
     def _convert_to_runit(self):
-        """Convert Runit into the default one
+        """Convert XYunit into the default one
         a priori arcseconds.
         """
-        self.R *= self.scale_runit
+        self.R *= self.Runit_per_pixel
         # Update the unit
         self.Runit = dict_units['R']
+
+    @property
+    def Runit_per_pixel(self):
+        return (1. * self.Runit).to(dict_units['R'],
+                                 self.eq_pscale).value
+    @property
+    def eq_pscale(self):
+        return u.pixel_scale(self.pixel_scale * self.Runit / u.pixel)
 
     def _init_R(self, R):
         """Initialise Rin
@@ -812,6 +816,15 @@ class Profile(object):
                   "- Aborting".format(dname))
             print("WARNING[add_dataprofile]: use overwrite option to force.")
             return
+
+        # Check if we wish to force the dtype / dunit
+        force_dtype = kwargs.pop("force_dtype", self._force_dtype)
+        if force_dtype:
+            dtype = kwargs.get("dtype", None)
+            dmap_info = get_dmap_info_from_dtype(dtype, dname)
+            # Transfer
+            for key, value in dmap_info.items():
+                kwargs[key] = value
 
         self.attach_dataprofile(DataProfile(data=data, dname=dname, **kwargs))
 
