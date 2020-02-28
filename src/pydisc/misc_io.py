@@ -6,10 +6,10 @@ files.
 import os
 
 import numpy as np
-from scipy import stats
-from scipy.spatial import distance, kdtree
-from . import transform
-from . import local_units as lu
+from scipy.spatial import distance
+from astropy.io import fits as pyfits
+from astropy.wcs import WCS
+from astropy.wcs.utils import proj_plane_pixel_scales
 
 __author__ = "Eric Emsellem"
 __copyright__ = "Eric Emsellem"
@@ -19,6 +19,7 @@ default_float = np.float32
 default_suffix_separator = "_"
 default_prefix_separator = ""
 
+
 class AttrDict(dict):
     """New Dictionary which adds the attributes using
     the items as names
@@ -27,165 +28,97 @@ class AttrDict(dict):
         return self[item]
 
     def __dir__(self):
-        return super().__dir__() + [str(k) for k in self.keys()]
+        return super(AttrDict).__dir__() + [str(k) for k in self.keys()]
 
-
-def extract_prefixes_from_kwargs(keywords, given_arglist):
-    """Extract list of keywords ending with a prefix
-    assuming they all end with a string belonging to
-    a given list of args
-
-    Attributes
-        keywords: list of str
-            Keywords to test
-        given_arglist: list of str
-            Fixed list of args
-
-    Returns
-        Dictionary with prefixes as keys and list of found
-        args as values
-    """
-    dict_kwarg = {}
-    for arg in given_arglist:
-        # We look for the keywords which starts with one of the arg
-        found_prefixes = [kwarg.replace(arg, "") for key in keywords if key.endswith(arg)]
-        # For all of these, we extract the arg and add it to the dictionary
-        for prefix in found_prefixes:
-            if prefix in dict_kwarg.keys():
-                dict_kwarg[prefix].append(arg)
-            else:
-                dict_kwarg[prefix] = [arg]
-
-    return dict_kwarg
-
-def extract_suffixes_from_kwargs(keywords, given_arglist, separator=""):
-    """Extract list of keywords starting with a suffix
-    assuming they all start with a string belonging to
-    a given list of args
-
-    Attributes
-        keywords: list of str
-            Keywords to test
-        given_arglist: list of str
-            Fixed list of args
-
-    Returns
-        Dictionary with suffixes as keys and list of found
-        args as values
-    """
-    dict_kwarg = {}
-    # First work out the ambiguous names in the arg list
-    dict_doublet = {}
-    for arg in given_arglist:
-        for arg2 in given_arglist:
-            if arg in arg2 and arg != arg2:
-                # arg is contained in arg2
-                if arg in dict_doublet.keys():
-                    dict_doublet[arg].append(arg2)
-                else:
-                    dict_doublet[arg] = [arg2]
-
-    for arg in given_arglist:
-        if arg in dict_doublet.keys():
-            larg2 = dict_doublet[arg]
-        else:
-            larg2 = ["###"]
-        # We look for the keywords which starts with one of the arg
-        found_suffixes = []
-        for key in keywords:
-            if key.startswith(arg) and not key.startswith(tuple(larg2)):
-                if key == arg:
-                    found_suffixes.append(key.replace(arg, ""))
-                else:
-                    found_suffixes.append(key.replace(arg + separator, ""))
-        # For all of these, we extract the arg and add it to the dictionary
-        for suffix in found_suffixes:
-            if suffix in dict_kwarg.keys():
-                dict_kwarg[suffix].append(arg)
-            else:
-                dict_kwarg[suffix] = [arg]
-
-    return dict_kwarg
 
 # adding prefix
-def add_prefix(name, prefix=None, link=default_prefix_separator):
-    """Add prefix to name
+def add_prefix(name, prefix=None, separator=default_prefix_separator):
+    """Add prefix to name, except if prefix is None or an empty string ''
 
     Args:
-        name:
-        prefix:
-        link:
+        name: str
+        prefix: str [None]
+        separator: str
 
     Returns:
         new name with prefix
     """
-    if prefix is None:
+    if prefix is None or prefix=="":
         return name
     else:
-        return "{0}{1}{2}".format(prefix, link, name)
+        return "{0}{1}{2}".format(prefix, separator, name)
 
 # remove prefix
-def remove_prefix(name, prefix=None, link=default_prefix_separator):
-    """Remove prefix to name
+def remove_prefix(name, prefix=None, separator=default_prefix_separator):
+    """Remove prefix to name. If the link separator is present
+    it will be removed too.
 
     Args:
-        name:
-        prefix:
-        link:
+        name: str
+        prefix: str [None]
+        separator: str
 
     Returns:
         new name without prefix if it exists
     """
-    if prefix is None or not name.startswith(prefix+link):
+    # If none or wrong start just return the name
+    if prefix is None or not name.startswith(prefix):
         return name
-    else:
-        return name.replace(prefix+link, "")
+    # if it starts with the right prefix+separator
+    elif name.startswith(prefix+separator):
+        return name.replace(prefix+separator, "")
+    # If only the prefix is present, remove it
+    elif name.startswith(prefix):
+        return name.replace(prefix, "")
 
 # adding suffix
-def add_suffix(name, suffix=None, link=default_suffix_separator):
-    """Add suffix to name
+def add_suffix(name, suffix=None, separator=default_suffix_separator):
+    """Add suffix to name, except if it is None or an empty str ''
 
     Args:
-        name:
-        suffix:
-        link:
+        name: str
+        suffix: str
+        separator: str
 
     Returns:
         new name with suffix
     """
-    if suffix is None or suffix=="":
+    if suffix is None or suffix=="" or name is None:
         return name
     else:
-        return "{0}{1}{2}".format(name, link, suffix)
+        return "{0}{1}{2}".format(name, separator, suffix)
 
 # remove suffix
-def remove_suffix(name, suffix=None, link=default_suffix_separator):
+def remove_suffix(name, suffix=None, separator=default_suffix_separator):
     """Remove suffix to name
 
     Args:
-        name:
-        suffix:
-        link:
+        name: str
+        suffix: str [None]
+        separator: str
 
     Returns:
         new name without suffix
     """
-    if suffix is None or not name.endswith(link+suffix):
+    if suffix is None or not name.endswith(suffix):
         return name
-    else:
-        return name.replace(link+suffix, "")
+    elif name.endswith(suffix+separator):
+        return name.replace(separator+suffix, "")
+    elif name.endswith(suffix):
+        return name.replace(suffix, "")
 
 # Add suffix for error attributes
-def add_err_prefix(name, link=default_prefix_separator):
+def add_err_prefix(name, separator=default_prefix_separator):
     """Add error (e) prefix to name
 
     Args
         name: str
+        separator: str
 
     Returns
         name with error prefix
     """
-    return add_prefix(name, "e", link=link)
+    return add_prefix(name, "e", separator=separator)
 
 #========================================
 # Reading the Circular Velocity from file
@@ -252,7 +185,7 @@ def read_vc_file(filename, filetype="ROTCUR"):
 #============================================================
 # ----- Extracting the header and data array ------------------
 #============================================================
-def extract_frame(fits_name, pixelsize=1., verbose=True):
+def extract_fits(fits_name, pixelsize=1., verbose=True):
     """Extract 2D data array from fits
     and return the data and the header
 
@@ -288,17 +221,17 @@ def extract_frame(fits_name, pixelsize=1., verbose=True):
         naxis1, naxis2 = h['NAXIS1'], h['NAXIS2']
         data = np.nan_to_num(data.reshape((naxis2, naxis1)))
 
-        # Checking the step from the Input image (supposed to be in degrees)
-        # If it doesn't exist, we set the step to 1. (arcsec)
-        desc = 'CDELT1'
-        if desc in h:
-            steparc = np.fabs(h[desc] * 3600.)  # calculation in arcsec
+        try:
+            thiswcs = WCS(fits_name)
+            pixel_scales = proj_plane_pixel_scales(thiswcs)
+            steparc = np.fabs(pixel_scales * 3600.)[:2]
             if verbose:
-                print('Read pixel size ({0}) of Main Image = {1}'.format(h[desc], steparc))
-        else:
+                print('Read pixel size of Main Image = {}'.format(steparc))
+        except:
             steparc = pixelsize  # in arcsec
             if verbose:
-                print("Didn't find a CDELT descriptor, use step={0}".format(steparc))
+                print("Didn't find a WCS: will use default step={}".format(steparc))
+
         return data, h, steparc
 
 # --------------------------------------------------
@@ -384,81 +317,4 @@ def get_1d_radial_sampling(rmap, nbins):
         rstep = 1.0
 
     return rsamp, rstep
-
-def extract_radial_profile_fromXY(X, Y, data, nbins=None,
-                                  verbose=True,
-                                  wedge_size=0.0, wedge_angle=0.):
-    """Extract a radial profile from an X,Y, data grod
-
-    Args:
-        X:
-        Y:
-        data:
-        nbins:
-        verbose:
-        wedge_size:
-        wedge_angle:
-
-    Returns:
-        R, profile
-    """
-
-    rmap, thetamap = transform.xy_to_polar(X, Y)
-    return extract_radial_profile(rmap, np.nan_to_num(data), nbins=nbins,
-                                  thetamap=thetamap,
-                                  verbose=verbose, wedge_size=wedge_size,
-                                  wedge_angle=wedge_angle)
-
-def extract_radial_profile(rmap, data, nbins=None,
-                           thetamap=None, verbose=True,
-                           wedge_size=0.0, wedge_angle=0.):
-    """Extract a radial profile from input frame
-    Given theta and r maps
-
-    Input
-    -----
-    rmap: float array
-        Values of the radius.
-    data: float array
-        Input data values.
-    nbins: int [None]
-        Number of bins for the radial profile.
-        If None, using an estimate from the input rmap size.
-    wedge_angle: float [0]
-        Position angle of the wedge to exclude
-    wedge_size: float [0]
-        Size of the wedge to exclude on each side
-    verbose: bool
-        Default is True (print information)
-    thetamap: 2D array
-        Map of theta values (in degrees)
-
-    Returns
-    -------
-    rsamp: float array
-        Radial array (1D)
-    rdata: float array
-        Radial values (1D)
-    """
-    # Printing more in case of verbose
-    if verbose:
-        print("Deriving the radial profile ... \n")
-
-    if nbins is None:
-        nbins = np.int(np.sqrt(rmap.size) * 1.5)
-
-    # First deriving the max and cutting it in nbins
-    rsamp, stepr = get_1d_radial_sampling(rmap, nbins)
-    if thetamap is None:
-        thetamap = np.ones_like(rmap)
-        wedge_size = 0.0
-    else:
-        thetamap -= wedge_angle
-
-    # Filling in the values for y (only if there are some selected pixels)
-    sel_wedge = (thetamap > wedge_size) & (thetamap < 180.0 - wedge_size)
-    rdata, bin_edges, bin_num = stats.binned_statistic(rmap[sel_wedge], data[sel_wedge],
-                                                       statistic='mean', bins=rsamp)
-    # Returning the obtained profile
-    return rsamp[:-1], rdata
 

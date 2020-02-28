@@ -3,53 +3,47 @@
 This provides the basis for torque computation
 """
 import numpy as np
-from astropy import units as u
 
 __author__ = "Eric Emsellem"
 __copyright__ = "Eric Emsellem"
 __license__ = "mit"
 
 from .disc import GalacticDisc
-from .misc_io import add_suffix, AttrDict, add_err_prefix, add_prefix
-from .misc_io import extract_radial_profile_fromXY
-from .misc_io import get_extent, guess_stepxy, cover_linspace
+from .misc_io import add_suffix, AttrDict
+from .transform import extract_radial_profile_fromXY
+from .maps_grammar import remap_suffix, _is_flag_density
 from . import fit_functions as ff
 from . import gravpot_functions as gpot
-from .transform import regrid_Z
-from .disc_data import dict_units
-
-dict_torques_datanames = {"gas": "Weight", "gasd": "WeightD",
-                          "weightd": "WeightD", "weight": "Weight",
-                          "mass": "Mass", "massd": "MassD"}
-dict_torques_griddatanames = {"gridgasd": "FluxD", "gridmassd": "MassD"}
-density_prefix = "d"
-def _is_density(name):
-    return name.lower().endswith(density_prefix)
-
-def _add_density_suffix(name):
-    return add_suffix(name, density_prefix, link="")
 
 class TorqueMap(object):
-    def __init__(self, mass, vel, fac_pc=1.0):
-        self.mass = mass
-        self.vel = vel
+    def __init__(self, massmap, mass_dname, comp_dname,
+                 velprof, vel_dname, fac_pc=1.0):
+        self.massmap = massmap
+        self.mass_dname = mass_dname
+        self.comp_dname = comp_dname
+        self.velprof = velprof
+        self.vel_dname = vel_dname
+
+        self.dmass = self.massmap.dmaps[self.mass_dname]
+        self.dcomp = self.massmap.dmaps[self.comp_dname]
+        self.dvel = self.velprof.dprofiles[self.vel_dname]
         self.fac_pc = fac_pc
 
         # Check the coordinates
-        self.Xdep = self.mass.X_londep
-        self.Ydep = self.mass.Y_londep
+        self.Xdep = self.massmap.X_londep
+        self.Ydep = self.massmap.Y_londep
         self.Rdep = np.sqrt(self.Xdep**2 + self.Ydep**2)
         self.Xdep_pc = self.Xdep * self.fac_pc
         self.Ydep_pc = self.Ydep * self.fac_pc
         self.Rdep_pc = self.Rdep * self.fac_pc
-        self.pixel_scale = self.mass.pixel_scale
+        self.pixel_scale = self.massmap.pixel_scale
         self.pc_per_pixel = self.pixel_scale * self.fac_pc
 
     def get_mass_profile(self):
         """Compute the 1d mass profile
         """
         self.Rmass1d, self.mass1d = extract_radial_profile_fromXY(self.Xdep, self.Ydep,
-                                                                  self.mass.data_mass,
+                                                                  self.dmass.data,
                                                                   nbins=None, verbose=True,
                                                                   wedge_size=0.0, wedge_angle=0)
 
@@ -60,9 +54,9 @@ class TorqueMap(object):
         self.bfit_mass1d = self.fmass1d(self.Rmass1d, self.opt_mass[0])
         self.bfit_mass1d_sphe = self.fsphe1d(self.Rmass1d, self.opt_mass[0])
         self.bfit_mass1d_disc = self.fdisc1d(self.Rmass1d, self.opt_mass[0])
-        self.bfit_sphe1d = self.fsphe1d(self.mass._R, self.opt_mass[0])
+        self.bfit_sphe1d = self.fsphe1d(self.massmap._R, self.opt_mass[0])
         self.bfit_sphe1d_dep = self.fsphe1d(self.Rdep, self.opt_mass[0])
-        self.mass.faceon = self.mass.data_mass - self.bfit_sphe1d_dep + self.bfit_sphe1d
+        self.massmap.faceon = self.dmass.data - self.bfit_sphe1d_dep + self.bfit_sphe1d
         self.Rl_disc = self.opt_mass[0][3]
 
     def get_kernel(self, softening=0.0, function="sech2"):
@@ -77,7 +71,7 @@ class TorqueMap(object):
     def get_gravpot(self):
         """Calculate the gravitational potential
         """
-        self.gravpot = gpot.get_potential(self.mass.faceon, self.kernel)
+        self.gravpot = gpot.get_potential(self.massmap.faceon, self.kernel)
 
     def get_forces(self):
         """Calculate the forces from the potential
@@ -101,8 +95,9 @@ class TorqueMap(object):
         """
         self.r_mean, self.v_mean, self.torque_mean, self.torque_mean_w, \
                 self.ang_mom_mean, self.dl, self.dm, self.dm_sum = \
-                gpot.get_torque(self.Xdep_pc, self.Ydep_pc, self.VcU, self.Fx, self.Fy,
-                                self.mass.data_WeightD, n_rbins=n_rbins)
+                gpot.get_torque(self.Xdep_pc, self.Ydep_pc, self.VcU,
+                                self.Fx, self.Fy, self.dcomp.data,
+                                n_rbins=n_rbins)
 
     def run_torques(self, softening=0.0, func_kernel="sech2", n_rbins=50):
         """Running the torque calculation from start to end
@@ -119,36 +114,34 @@ class TorqueMap(object):
         # Step 2 - Now doing the fit of the spheroid (and disc)
         self.fit_mass_profile()
 
-        # Step 3 - resample to a standard grid with squared pixel
-        # And go to mass density before resampling
-        # Come back to Mass before going to the gravitational potential
-
-        # Step 4 - calculate the kernel
+        # Step 3 - calculate the kernel
         self.get_kernel(softening=softening, function=func_kernel)
 
-        # Step 5 - calculate the potential
+        # Step 4 - calculate the potential
         self.get_gravpot()
 
-        # Step 6 - Calculate the forces and velocities
+        # Step 5 - Calculate the forces
         self.get_forces()
+
+        # Step 6 - Get the rotation velocities
         self.get_vrot_from_forces()
 
         # Step 7 - Normalise the fields with M/L
+        # For the moment = passed
 
         # Step 8 - Calculate the torques
         self.get_torques(n_rbins=n_rbins)
+
 
 class GalacticTorque(GalacticDisc):
     """Class for functionalities associated with Torques
     """
 
     def __init__(self, vcfile_name=None, vcfile_type="ROTCUR",
-                 **kwargs):
+                 Rfinestep=0, vprof_name="Velocity", **kwargs):
         """
 
         Args:
-            gasd:
-            mass:
             vcfile_name:
             vcfile_type:
             **kwargs:
@@ -156,87 +149,124 @@ class GalacticTorque(GalacticDisc):
         self.verbose = kwargs.pop("verbose", False)
 
         # Using GalacticDisc class attributes
-        super().__init__(read_maps=False, force_dtypes=False, **kwargs)
-
-        # Look for the reference X, Y
-        self._get_XY(**kwargs)
-        Rfinestep = kwargs.pop("Rfinestep", 0)
-
-        # Just a warning that the refname is not provided
-        # Hence no X, Y => will be initialised from indices
-        if self.Xrefname is None:
-            print("WARNING: no X,Y coordinates provided")
-
-        # Adding the provided components
-        self.add_components(**kwargs)
+        super().__init__(**kwargs)
 
         # Now the velocity file
         if vcfile_name is not None:
             print("INFO: Adding the provided Vc file")
-            self.add_vprofile(filename=vcfile_name, filetype=vcfile_type,
-                              Rfinestep=Rfinestep)
+            velname = self.add_vprofile(filename=vcfile_name, filetype=vcfile_type,
+                              Rfinestep=Rfinestep, vprof_name=vprof_name)
+        else:
+            velname = kwargs.pop("velname", "vel_vel01")
+
+        # And checking the maps
+        compname = kwargs.pop("compname", "comp_comp01")
+        massname = kwargs.pop("massname", "mass_mass01")
+        self.init_torque_components(velname=velname, compname=compname,
+                                    massname=massname)
 
         # Make sure we start with a clean set of torque maps
         self._reset_torquemaps()
 
-    def _get_XY(self, **kwargs):
-        """Extract first X,Y attributes and save names and
-        values
 
-        Args
-            **kwargs: set of arguments
+    @property
+    def velname(self):
+        return self.profiles[self.vel_pname]._fullname(self.vel_dname)
+
+    @property
+    def massname(self):
+        return self.maps[self.mass_mname]._fullname(self.mass_dname)
+
+    @property
+    def compname(self):
+        return self.maps[self.comp_mname]._fullname(self.comp_dname)
+
+    def init_torque_components(self, **kwargs):
+        """Initialise the torque maps components
+
+        Args:
+            **kwargs: velname, compname, massname
 
         """
-        # First look for the reference input coordinates
-        self.Xref = None
-        self.Yref = None
-        self.Xrefname = None
-        self.Yrefname = None
-        for kwarg in kwargs:
-            if kwarg.startswith("X") and not kwarg.startswith("Xcen"):
-                self.Xrefname = kwarg
-                self.Yrefname = kwarg.replace("X", "Y")
-                self.Xref = kwargs.get(self.Xrefname, None)
-                self.Yref = kwargs.get(self.Yrefname, None)
-                break
+        self._decode_torque_names(**kwargs)
+        self.check_torque_components()
+        if self._check_all:
+            self.match_comp_mass()
 
-    def add_components(self, **kwargs):
-        """Decipher the new components and add them
-        The only thing is to convert the pre-defined map keys into
-        the right types
+    def _decode_torque_names(self, velname=None, compname=None, massname=None):
         """
-        # Loop over the potential names for mass and gas maps
-        list_map_kwargs  = self._analyse_kwargs_tobuild_maps(**kwargs)
-        for map_kwargs in list_map_kwargs:
-            # Overwrite the mtype when map name found
-            map_name = map_kwargs['name']
-            # Check if name is in the dictionary
-            mtype = None
-            for key in dict_torques_datanames.keys():
-                if map_name.startswith(key):
-                    mtype = key
-                    break
-            if mtype is not None:
-                dtype = dict_torques_datanames[map_name]
-                # Forcing the mtype
-                map_kwargs['mtype'] = mtype
-                # Change to density map if not already the case
-                if not _is_density(dtype):
-                    try:
-                        XYunit = map_kwargs['XYunit']
-                    except KeyError:
-                        XYunit = dict_units['XY']
-                    scalepc2 = (self.pc_per_xyunit(XYunit)) ** 2
-                    map_kwargs['data'] /= scalepc2
-                    if 'edata' in map_kwargs.keys():
-                        if map_kwargs['edata'] is not None:
-                            map_kwargs['edata'] /= scalepc2
 
-                    map_kwargs['dtype'] = _add_density_suffix(dtype)
-                self.add_maps(**map_kwargs)
-            else:
-                print("ERROR: map name not in dictionary {}"
-                      "- Not adding this Map".format(map_name))
+        Args:
+            velname (str): composite name for the velocity profile
+            compname (str): composite name for the component map
+            massname (str): composite name for the mass map
+
+        """
+        # Decoding the names
+        self.vel_pname, self.vel_dname = self._decode_prof_name(velname)
+        self.comp_mname, self.comp_dname = self._decode_map_name(compname)
+        self.mass_mname, self.mass_dname = self._decode_map_name(massname)
+
+    def check_torque_components(self):
+        """Find the components for the torque calculations using the composite
+        names for the velocities, component (e.g., gas flux) and mass.
+
+        """
+        # Checking the maps and profiles
+        # And making sure they are density maps
+        if self._check_mass():
+            thismap = self.massmap
+            if not _is_flag_density(self.massdmap.flag):
+                self.mass_dname = thismap.intmap_to_densitymap(self.mass_dname, self)
+
+        if self._check_comp():
+            thismap = self.compmap
+            if not _is_flag_density(self.compdmap.flag):
+                self.comp_dname = thismap.intmap_to_densitymap(self.comp_dname, self)
+
+    @property
+    def veldprof(self):
+        return self.profiles[self.vel_pname].dprofiles[self.vel_dname]
+
+    @property
+    def velprof(self):
+        return self.profiles[self.vel_pname]
+
+    @property
+    def compdmap(self):
+        return self.maps[self.comp_mname].dmaps[self.comp_dname]
+
+    @property
+    def compmap(self):
+        return self.maps[self.comp_mname]
+
+    @property
+    def massdmap(self):
+        return self.maps[self.mass_mname].dmaps[self.mass_dname]
+
+    @property
+    def massmap(self):
+        return self.maps[self.mass_mname]
+
+    @property
+    def _matched(self):
+        return (self.mass_mname == self.comp_mname)
+
+    @property
+    def _check_all(self):
+        return all((self._check_comp(), self._check_mass(), self._check_vel()))
+
+    def _check_vel(self):
+        return self._has_profile_data(self.vel_pname, self.vel_dname,
+                                      order=1)
+
+    def _check_comp(self):
+        return self._has_map_data(self.comp_mname, self.comp_dname,
+                                  order=0)
+
+    def _check_mass(self):
+        return self._has_map_data(self.mass_mname, self.mass_dname,
+                                  order=0)
 
     def _reset_torquemaps(self):
         """Initalise the torquemap Profiles by setting an empty
@@ -254,72 +284,30 @@ class GalacticTorque(GalacticDisc):
         else:
             return -1
 
-    def match_gas_and_mass(self, gas_name=None, mass_name=None):
+    def match_comp_mass(self, odname1="dmass", odname2="dcomp", **kwargs):
         """Aligning the gas onto the mass map
         """
-        gas_map = self._get_map(gas_name, mtype="gas")
-        mass_map = self._get_map(mass_name, mtype="mass")
+        if not self._check_all:
+            print("WARNING[match_comp_mass]: cannot proceed with match "
+                  "as all maps are not yet set up. Please check")
+            return
 
-#        # Deproject the two maps
-#        self.deproject_nodes(mass_map.name)
-#        self.deproject_nodes(gas_map.name)
+        if not self._matched:
+            match_name = self.match_datamaps(self.mass_mname, self.comp_mname,
+                                             self.mass_dname, self.comp_dname,
+                                             odname1, odname2)
+            print("INFO[match_comp_mass]: new map is {}".format(match_name))
+            self.mass_mname = match_name
+            self.comp_mname = match_name
+            self.mass_dname = odname1
+            self.comp_dname = odname2
+            self.deproject_nodes(match_name)
+        else:
+            print("WARNING[match_comp_mass]: nothing to match as the data are "
+                  "associated with the same map {}".format(self.mass_mname))
 
-        # Get the datamap from gas
-        mass_datamap = mass_map._get_datamap(order=0)
-
-        # Get the datamap from gas
-        gas_datamap = gas_map._get_datamap(order=0)
-
-        # Determine the new grid
-        XYextent = get_extent(mass_map.X_lon, mass_map.Y_lon)
-        newstep = guess_stepxy(mass_map.X_lon, mass_map.Y_lon)
-        Xn, Yn = np.meshgrid(cover_linspace(XYextent[0], XYextent[1], newstep),
-                             cover_linspace(XYextent[2], XYextent[3], newstep))
-
-        # Regrid
-        newmass_data = regrid_Z(mass_map.X_lon, mass_map.Y_lon, mass_datamap.data,
-                               Xn, Yn)
-        newmass_edata = regrid_Z(mass_map.X_lon, mass_map.Y_lon, mass_datamap.edata,
-                                Xn, Yn)
-        newgas_data = regrid_Z(gas_map.X_lon, gas_map.Y_lon, gas_datamap.data,
-                               Xn, Yn)
-        newgas_edata = regrid_Z(gas_map.X_lon, gas_map.Y_lon, gas_datamap.edata,
-                               Xn, Yn)
-
-        # And re-attach to a regrided mass map
-        name_mass = add_suffix(mass_map.name, "grid", link="")
-        name_gas = add_suffix(gas_map.name, "grid", link="")
-        type_mass = add_prefix(mass_map.mtype, "grid")
-        type_gas = add_prefix(gas_map.mtype, "grid")
-        dtype_gas = dict_torques_datanames[gas_datamap.dtype.lower()]
-        dtype_mass = dict_torques_datanames[mass_datamap.dtype.lower()]
-
-        mykwargs = {}
-        mykwargs["data"] = newmass_data
-        mykwargs["edata"] = newmass_edata
-        # Adding the gridded mass map
-        print("INFO[torques/match]: attaching the mass map")
-        self.add_maps(name=name_mass, order=0, mtype=type_mass,
-                     X=Xn, Y=Yn, dtype=dtype_mass, flag=mass_map.flag,
-                     dname=mass_map.name, **mykwargs)
-
-        # Deprojecting this one
-        self.deproject_nodes(name_mass)
-
-        dmap_info = self._extract_dmap_info_from_dtype(dtype_gas)
-        # Adding the gas data
-        print("INFO[torques/match]: attaching the data for the gas datamap")
-        self.maps[name_mass].add_data(newgas_data, order=dmap_info['order'],
-                          edata=newgas_edata, dname=dmap_info['dname'],
-                          flag=dmap_info['flag'],
-                          dtype=dmap_info['dtype'],
-                          dunit=dmap_info['dunit'])
-
-        return self.maps[name_mass]
-
-    def run_torques(self, gas_name=None, mass_name=None, vel_name=None,
-                    torquemap_name=None, softening=0, func_kernel="sech2",
-                    n_rbins=50):
+    def run_torques(self, torquemap_name=None, softening=0, func_kernel="sech2",
+                    n_rbins=50, **kwargs):
         """Running the torques recipes
 
         Args:
@@ -331,19 +319,24 @@ class GalacticTorque(GalacticDisc):
         Returns:
 
         """
-
         if torquemap_name is None:
             torquemap_name = "Torq{0:02d}".format(self.ntorquemaps+1)
 
         # Step 0 - finding the gas, mass and vel if not defined
-        # and match the gas and mass maps
-        mass_map = self.match_gas_and_mass(gas_name, mass_name)
-        vel_prof = self._get_profile(vel_name, ptype="vel")
+        # and match the maps
+        if not self._check_all:
+            # Try to read the maps
+            velname = kwargs.pop("velname", self.velname)
+            compname = kwargs.pop("compname", self.compname)
+            massname = kwargs.pop("massname", self.massname)
+            self.init_torque_components(velname=velname, compname=compname,
+                                        massname=massname)
 
-        fac_pc = self.pc_per_xyunit(mass_map.XYunit)
+        fac_pc = self.pc_per_xyunit(self.massmap.XYunit)
 
         # Defining the structure in which the torques will be calculated
-        newT = TorqueMap(mass_map, vel_prof, fac_pc=fac_pc)
+        newT = TorqueMap(self.massmap, self.mass_dname, self.comp_dname,
+                         self.velprof, self.vel_dname, fac_pc=fac_pc)
 
         # Running the torque calculation
         newT.run_torques(softening=softening, n_rbins=n_rbins,

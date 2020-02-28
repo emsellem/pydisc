@@ -1,4 +1,4 @@
-test=1
+test=2
 if test == 1:
     from pydisc.torques import GalacticTorque
     from astropy.io import fits as pyfits
@@ -39,8 +39,8 @@ if test == 2:
     flux = maps['FLUX'].data
     vel = maps['V_STARS'].data
 
-    mydisc = DensityWave(data_flux=flux, edata_flux=np.zeros_like(flux),
-                         data_mass=mass, data_vel=vel, edata_vel=np.zeros_like(vel),
+    mydisc = DensityWave(data_flux=flux, data_mass=mass, data_vel=vel,
                          name="MUSE", Xcen=462.5, Ycen=464.4, PAnodes=90)
     mydisc.tremaine_weinberg(slit_width=5.0, map_name="MUSE")
-    mydisc.plot_tw()
+    o = mydisc.fit_slope_tw()
+#    mydisc.plot_tw()

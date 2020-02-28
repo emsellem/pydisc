@@ -5,12 +5,14 @@ rotations and other geometrical transformations
 """
 
 import numpy as np
-from numpy import deg2rad, rad2deg, cos, sin, arctan, tan, pi
+from numpy import cos, sin, pi
 
 from scipy.interpolate import griddata as gdata
 from scipy.ndimage.interpolation import rotate, affine_transform
+from scipy import stats
 
-from .misc_io import default_float, guess_stepxy, get_extent
+from .misc_io import default_float, guess_stepxy, \
+                     get_extent, get_1d_radial_sampling
 
 def mirror_grid(X, Y) :
     """Find the mirrored grid (above/below major-axis)
@@ -326,4 +328,81 @@ def rotxyC(x, y, cx=0.0, cy=0.0, angle=0.0) :
 
     # Then only rotation
     return rotxC(xt, yt, angle=angle), rotyC(xt, yt, angle=angle)
+
+def extract_radial_profile_fromXY(X, Y, data, nbins=None,
+                                  verbose=True,
+                                  wedge_size=0.0, wedge_angle=0.):
+    """Extract a radial profile from an X,Y, data grod
+
+    Args:
+        X:
+        Y:
+        data:
+        nbins:
+        verbose:
+        wedge_size:
+        wedge_angle:
+
+    Returns:
+        R, profile
+    """
+
+    rmap, thetamap = xy_to_polar(X, Y)
+    return extract_radial_profile(rmap, np.nan_to_num(data), nbins=nbins,
+                                  thetamap=thetamap,
+                                  verbose=verbose, wedge_size=wedge_size,
+                                  wedge_angle=wedge_angle)
+
+def extract_radial_profile(rmap, data, nbins=None,
+                           thetamap=None, verbose=True,
+                           wedge_size=0.0, wedge_angle=0.):
+    """Extract a radial profile from input frame
+    Given theta and r maps
+
+    Input
+    -----
+    rmap: float array
+        Values of the radius.
+    data: float array
+        Input data values.
+    nbins: int [None]
+        Number of bins for the radial profile.
+        If None, using an estimate from the input rmap size.
+    wedge_angle: float [0]
+        Position angle of the wedge to exclude
+    wedge_size: float [0]
+        Size of the wedge to exclude on each side
+    verbose: bool
+        Default is True (print information)
+    thetamap: 2D array
+        Map of theta values (in degrees)
+
+    Returns
+    -------
+    rsamp: float array
+        Radial array (1D)
+    rdata: float array
+        Radial values (1D)
+    """
+    # Printing more in case of verbose
+    if verbose:
+        print("Deriving the radial profile ... \n")
+
+    if nbins is None:
+        nbins = np.int(np.sqrt(rmap.size) * 1.5)
+
+    # First deriving the max and cutting it in nbins
+    rsamp, stepr = get_1d_radial_sampling(rmap, nbins)
+    if thetamap is None:
+        thetamap = np.ones_like(rmap)
+        wedge_size = 0.0
+    else:
+        thetamap -= wedge_angle
+
+    # Filling in the values for y (only if there are some selected pixels)
+    sel_wedge = (thetamap > wedge_size) & (thetamap < 180.0 - wedge_size)
+    rdata, bin_edges, bin_num = stats.binned_statistic(rmap[sel_wedge], data[sel_wedge],
+                                                       statistic='mean', bins=rsamp)
+    # Returning the obtained profile
+    return rsamp[:-1], rdata
 

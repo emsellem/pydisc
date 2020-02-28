@@ -11,70 +11,15 @@ method, in-plane velocities (Maciejewski et al. method).
 from collections import OrderedDict
 
 # External modules
-import numpy as np
 from os.path import join as joinpath
 
 # local modules
 from .galaxy import Galaxy
-from .disc_data import Map, Profile, list_Data_attr
-from .misc_io import add_err_prefix, add_suffix, AttrDict, read_vc_file
-from .misc_io import extract_suffixes_from_kwargs as ex_suff
-from .misc_io import default_suffix_separator
-from .local_units import *
-
-dic_moments = OrderedDict([
-              # order   dtype   attr_name  comment unit
-                (-10, [("Dummy", "dummy", "Dummy category", pixel)]),
-                (-1, [("Other", "other", "Any category", pixel)]),
-                (0, [("Flux", "I", "flux [integrated]", Lsun),
-                     ("Mass", "M", "mass [integrated]", Msun),
-                     ("FluxD", "Id", "flux density [per unit area]", Lsunpc2),
-                     ("MassD", "Md", "mass density [per unit area]", Msunpc2),
-                     ("WeightD", "Wd", "To be used as weights [per unit area]", Lsunpc2),
-                     ("Weight", "W", "To be used as weights [integrated]", Lsun)]),
-                (1, [("Vel", "V", "velocity", kms)]),
-                (2, [("Disp", "S", "dispersion", kms),
-                     ("Mu2", "Mu2", "non-centred 2nd order moment", kms2)])
-                ])
-
-dict_invert_moments = {}
-for order in dic_moments.keys():
-    for tup in dic_moments[order]:
-        dict_invert_moments[tup[0].lower()] = (order,) + tup[1:]
-
-# List of attributes to use for Maps and DataMaps
-list_Map_attr = ["Xcen", "Ycen", "X", "Y", "name",
-                 "mtype", "XYunit", "pixel_scale",
-                 "NE_direct", "alpha_North", "fill_value", "method",
-                 "overwrite"]
-list_Profile_attr = ["R", "name", "ptype", "nameR", "Runit"]
-
-def get_all_moment_types():
-    """Get all types for all moments
-    """
-    alltypes = []
-    for order in dic_moments.keys():
-        alltypes.extend(get_moment_type(order))
-
-    return alltypes
-
-def get_all_moment_tuples():
-    """Get all tuples from dic_moments
-    """
-    alltuples = []
-    for order in dic_moments.keys():
-        alltuples.extend(dic_moments[order])
-
-    return alltuples
-
-def get_moment_type(order):
-    """Returns all potential variable types for this order
-
-    Args
-    ----
-    order: int
-    """
-    return [defset[0].lower() for defset in dic_moments[order]]
+from .disc_data import Map, Profile, match_datamaps
+from .misc_io import AttrDict, read_vc_file
+from .maps_grammar import analyse_maps_kwargs, list_Map_attr, list_Profile_attr
+from .maps_grammar import extract_suff_from_keywords, default_data_separator
+from . import local_units as lu
 
 def get_moment_attr(order):
     """Returns all potential attribute names for this order
@@ -118,17 +63,17 @@ class GalacticDisc(Galaxy):
         """
         self.verbose = kwargs.pop("verbose", False)
 
-        # Using galaxy class attributes
-        super().__init__(**kwargs)
-
         # initialise Maps if any
         self._reset_maps()
         self._reset_profiles()
 
-        self.force_dtypes = kwargs.pop("force_dtypes", True)
-        read_maps = kwargs.pop("read_maps", True)
-        if read_maps:
-            self.add_maps(**kwargs)
+        # Using galaxy class attributes
+        super().__init__(**kwargs)
+
+        self._force_dtype = kwargs.pop("force_dtype", True)
+
+        # Adding the maps
+        self.add_maps(**kwargs)
 
         # init slicing
         self._reset_slicing()
@@ -139,6 +84,32 @@ class GalacticDisc(Galaxy):
             return self.slicings[list(self.slicings.keys())[0]]
         else:
             return {}
+
+    def _decode_prof_name(self, name):
+        list_prof_names = list(self.profiles.keys())
+        dict_profs = extract_suff_from_keywords([name], list_prof_names, separator=default_data_separator)
+        if len(dict_profs) == 0:
+            return None, None
+
+        dname = list(dict_profs.keys())[0]
+        pname = dict_profs[dname][0]
+        if dname not in self.profiles[pname].dprofiles:
+            return pname, None
+        else:
+            return pname, dname
+
+    def _decode_map_name(self, name):
+        list_map_names = list(self.maps.keys())
+        dict_maps = extract_suff_from_keywords([name], list_map_names, separator=default_data_separator)
+        if len(dict_maps) == 0:
+            return None, None
+
+        dname = list(dict_maps.keys())[0]
+        mname = dict_maps[dname][0]
+        if dname not in self.maps[mname].dmaps:
+            return mname, None
+        else:
+            return mname, dname
 
     @property
     def _list_valid_dtypes(self):
@@ -198,150 +169,184 @@ class GalacticDisc(Galaxy):
         else:
             return -1
 
-    def _extract_dmap_info_from_dtype(self, dtype, dname=None):
-        """Extract info using the current kwarg
-        and the list of pre-defined tuples
-
-        Args:
-            dtype:
-
-        Returns:
-            datamap name, flag, dtype, order, dunit
-        """
-        dmap_info = {}
-        for tup in get_all_moment_tuples():
-            thistype = tup[0].lower()
-            if dtype.lower() == thistype:
-                # name of variable and attribute
-                dmap_info['flag'] = ""
-                if dname is None: dname = dtype.replace(thistype, tup[1].lower())
-                dmap_info['dname'] = dname
-                dmap_info['dtype'] = dtype
-                dmap_info['order'] = dict_invert_moments[thistype][0]
-                dmap_info['dunit'] = dict_invert_moments[thistype][3]
-                break
-        return dmap_info
-
     def remove_map(self, name):
         """Remove map
         """
         respop = self.maps.pop(name, None)
 
-    def _analyse_kwargs_tobuild_maps(self, **kwargs):
-        """Analyse kwargs to extract map_kwargs for each
-        associated map.
-
-        Args:
-            **kwargs:
-
-        Returns
-            List of map_kwargs for further processing
-        """
-        # Getting all the suffixes/names for the Maps
-        dict_maps_suffix = ex_suff(kwargs.keys(), list_Map_attr)
-        list_map_kwargs = []
-        # Attaching all detected Maps
-        for suffix_map in dict_maps_suffix.keys():
-            keywords_for_map = dict_maps_suffix[suffix_map]
-            # Initialise the kwargs for Map
-            map_kwargs = {}
-            # First go through all the Map specific keyword
-            for key in keywords_for_map:
-                map_kwargs[key] = kwargs.pop(add_suffix(key, suffix_map, link=""))
-            if 'name' not in map_kwargs.keys():
-                if suffix_map != "":
-                    map_name = suffix_map
-                else:
-                    map_name = "Map{0:02d}".format(self.nmaps + 1)
-                map_kwargs['name'] = map_name
-
-            # Then add the ones for the datamaps
-            # First detect all the datamaps keys for this specific Map
-            list_Data_attr_up = [add_suffix(dattr, suffix_map, link="")
-                                 for dattr in list_Data_attr]
-            # And now get the suffixes for these
-            dict_dmaps_suffix = ex_suff(kwargs.keys(), list_Data_attr_up)
-            # Remove suffixes which contain another map suffix
-            for suffix_dmap in dict_dmaps_suffix.keys():
-                list_dmap_arg = dict_dmaps_suffix[suffix_dmap]
-                if suffix_dmap == "" :
-                    name_dmap = suffix_map
-                elif suffix_dmap[0] != default_suffix_separator:
-                    continue
-                else:
-                    name_dmap = suffix_dmap[1:]
-
-                for key_dmap in list_dmap_arg:
-                    # Pass on that argument
-                    this_arg = key_dmap + suffix_dmap
-                    new_arg = key_dmap.replace(suffix_map, "") + suffix_dmap
-                    map_kwargs[new_arg] = kwargs.get(this_arg, None)
-
-                if self.force_dtypes:
-                    if 'dtype' not in list_dmap_arg:
-                        if name_dmap.lower() not in self._list_valid_dtypes:
-                            print("WARNING[analyse_maps]: this map has no recognised "
-                                  "suffix name ({}) - Skipped".format(suffix_dmap))
-                            continue
-                        else:
-                            dtype = name_dmap
-                    else:
-                        dtype = kwargs.get('dtype' + suffix_map + suffix_dmap)
-                        if dtype.lower() not in self._list_valid_dtypes:
-                            print("WARNING[analyse_maps]: this map has no recognised dtype ({}) - Skipped".format(dtype))
-                            continue
-                    dmap_info = self._extract_dmap_info_from_dtype(dtype, name_dmap)
-                    # Overwriting the info about name and dtype
-                    for key_dmap in dmap_info.keys():
-                        # Pass on that argument
-                        this_arg = key_dmap + suffix_map + suffix_dmap
-                        map_kwargs[this_arg] = dmap_info[key_dmap]
-
-            list_map_kwargs.append(map_kwargs)
-
-        return list_map_kwargs
-
     def add_maps(self, **kwargs):
         """Add a set of maps defined via kwargs
         First by analysing the input kwargs, and then processing
-        them one by one to add the maps
+        them one by one to add the data
 
         Args:
             **kwargs:
         """
-        list_map_kwargs = self._analyse_kwargs_tobuild_maps(**kwargs)
-        for map_kwargs in list_map_kwargs:
-            self.attach_map(Map(**map_kwargs))
+        list_map_kwargs = analyse_maps_kwargs(reference_list=list_Map_attr,
+                                              **kwargs)
+        for name_map, map_kwargs in list_map_kwargs.items():
+            map_kwargs["force_dtype"] = self._force_dtype
+            if 'mname' not in map_kwargs:
+                if name_map == "":
+                    name_map = "Map{0:02d}".format(self.nmaps+1)
+                map_kwargs['mname'] = name_map
+            try:
+                self.attach_map(Map(**map_kwargs))
+            except ValueError as err:
+                print(repr(err))
+
+    def add_profiles(self, **kwargs):
+        """Add a set of profiles defined via kwargs
+        First by analysing the input kwargs, and then processing
+        them one by one to add the data
+
+        Args:
+            **kwargs:
+        """
+        list_prof_kwargs = analyse_profiles_kwargs(reference_list=list_Profile_attr,
+                                                  **kwargs)
+        for name_prof, prof_kwargs in list_prof_kwargs.items():
+            prof_kwargs["force_dtype"] = self._force_dtype
+            if 'pname' not in prof_kwargs:
+                if name_prof == "":
+                    name_prof = "Prof{0:02d}".format(self.nprofs+1)
+                prof_kwargs['pname'] = name_prof
+            try:
+                self.attach_profile(Profile(**prof_kwargs))
+            except ValueError as err:
+                print(repr(err))
 
     def attach_map(self, newmap):
         """Attaching the map newmap
 
         Args:
-            newmap:
+            newmap (Map):
 
         Returns:
 
         """
-        print("INFO: attaching map {}".format(newmap.name))
-        newmap.align_axes(self)
-        self.maps[newmap.name] = newmap
+        if newmap is None:
+            print("ERROR[attach_map]: cannot attach map (None) - Aborting")
+            return
 
-    def _has_map(self, name):
+        print("INFO: attaching map {}".format(newmap.mname))
+        newmap.align_axes(self)
+        self.maps[newmap.mname] = newmap
+
+    def attach_profile(self, newprof):
+        """Attaching the profile newprof
+
+        Args:
+            newprof (Profile):
+
+        Returns:
+
+        """
+        if newprof is None:
+            print("ERROR[attach_prof]: cannot attach profile (None) - Aborting")
+            return
+
+        print("INFO: attaching prof {}".format(newprof.pname))
+        self.profiles[newprof.pname] = newprof
+
+    def _has_map_data(self, mname, dname, **kwargs):
+        if not hasattr(self, 'maps'):
+            return False
+        if self._has_map(mname):
+            if self.maps[mname]._has_datamap(dname):
+                found = True
+                dmap = self.maps[mname].dmaps[dname]
+                for key in kwargs:
+                    if hasattr(dmap, key):
+                        if kwargs[key] != getattr(dmap, key):
+                            found = False
+                    else:
+                        found = False
+                return found
+
+        else:
+            return False
+
+    def _has_profile_data(self, pname, dname, **kwargs):
+        if not hasattr(self, 'profiles'):
+            return False
+        if self._has_profile(pname):
+            if self.profiles[pname]._has_dataprofile(dname):
+                found = True
+                dprof = self.profiles[pname].dprofiles[dname]
+                for key in kwargs:
+                    if hasattr(dprof, key):
+                        if kwargs[key] != getattr(dprof, key):
+                            found = False
+                    else:
+                        found = False
+                return found
+        else:
+            return False
+
+    def _has_map(self, mname):
+        """Test if it has this map
+
+        Args:
+            mname (str): name of the map
+
+        Returns:
+            Bool
+        """
         if self.nmaps <= 0:
             return False
         else:
-            return name in self.maps.keys()
+            return mname in self.maps.keys()
 
-    def _get_datamap(self, map_name, dname=None, order=None):
-        """Get the datamap from a given Map
-        """
-        # Get the Map
-        ds = self._get_map(map_name)
-        datamap = ds._get_datamap(dname)
-        if datamap is  None:
-            return ds, None
+    def _has_profile(self, pname):
+        if self.nprofiles <= 0:
+            return False
         else:
-            return ds, datamap
+            return pname in self.profiles.keys()
+
+    def _get_dataprofile(self, pname, dname=None, order=None):
+        """Get the dataprofile and profile from the names
+        CHeck order if provided
+
+        Args:
+            pname (str): name of the profile
+            dname (str): name of the dataprofile
+            order (int): order to check [None = ignored]
+
+        Returns:
+            name of the profile and dataprofile
+        """
+        # Get the Profile and DataProfile
+        # Test if order is correct only if provided
+        ds = self._get_map(pname)
+        if ds is not None:
+            dataprof = ds._get_dataprofile(dname, order)
+        else:
+            dataprof = None
+
+        return ds, dataprof
+
+    def _get_datamap(self, mname, dname=None, order=None):
+        """Get the datamap and map from the names
+        CHeck order if provided
+
+        Args:
+            mname (str): name of the map
+            dname (str): name of the datamap
+            order (int): order to check [None = ignored]
+
+        Returns:
+            name of the map and datamap
+        """
+        # Get the Map and Datamap
+        # Test if order is correct only if provided
+        ds = self._get_map(mname)
+        if ds is not None:
+            datamap = ds._get_datamap(dname, order)
+        else:
+            datamap = None
+
+        return ds, datamap
 
     def _get_ref_shape(self, **kwargs):
         # Getting all the input by scanning attribute names
@@ -360,7 +365,7 @@ class GalacticDisc(Galaxy):
 
         return ref_data_shape
 
-    def _get_map(self, map_name=None, mtype=""):
+    def _get_map(self, mname=None, mtype=""):
         """
         Args:
             **kwargs:
@@ -369,13 +374,20 @@ class GalacticDisc(Galaxy):
             just the first Map name.
         """
         # if name is None, get the first Map
-        if map_name is None :
-            for map_name in self.maps.keys():
-                if mtype in self.maps[map_name].mtype:
-                    break
-        return self.maps[map_name]
+        if mname is None:
+            list_names = [name for name, map in self.maps.items()
+                          if mtype==map.mtype]
+            if len(list_names) > 0:
+                mname = list_names[0]
+            else:
+                return None
 
-    def _get_profile(self, profile_name=None, ptype=""):
+        if mname not in self.maps.keys():
+            return None
+        else:
+            return self.maps[mname]
+
+    def _get_profile(self, pname=None, ptype=""):
         """
         Args:
             **kwargs:
@@ -384,22 +396,22 @@ class GalacticDisc(Galaxy):
             just the first profile name.
         """
         # if name is None, get the first Profile with the right type
-        if profile_name is None :
-            for profile_name in self.profiles.keys():
-                if ptype == self.profiles[profile_name].ptype:
+        if pname is None :
+            for pname in self.profiles.keys():
+                if ptype == self.profiles[pname].ptype:
                     break
 
         # if still none
-        if profile_name is None:
+        if pname is None:
             # If profile_name is still None, get an error raised
-            print("ERROR[_get_profile]: could not get profile_name, "
+            print("ERROR[_get_profile]: could not get pname, "
                   "even from ptype {}".format(ptype))
             return None
 
-        return self.profiles[profile_name]
+        return self.profiles[pname]
 
     def add_vprofile(self, filename=None, filetype="ROTCUR", folder="",
-                     prof_name=None, **kwargs):
+                     vprof_name=None, **kwargs):
         """Reading the input V file
 
         Input
@@ -424,16 +436,21 @@ class GalacticDisc(Galaxy):
         if status == 0:
             if self.nprofiles < 0:
                 self._reset_profiles()
-            if prof_name is None:
-                prof_name = "Vprof_{:02d}".format(self.nprofiles + 1)
-            self.profiles[prof_name] = Profile(data=Vc, edata=eVc, R=R,
-                                          dname=prof_name, order=1,
-                                          ptype='vel', dunit=kms,
-                                          dtype=filetype, **kwargs)
+            if vprof_name is None:
+                vprof_name = "Vprof_{:02d}".format(self.nprofiles + 1)
+            dname = "vel01"
+            new_profile = Profile(pname=vprof_name, data=Vc, edata=eVc, R=R,
+                                  dname=dname, order=1, ptype=filetype,
+                                  dunit=lu.kms, dtype='vel', **kwargs)
+            self.profiles[vprof_name] = new_profile
             if self.verbose:
                 print("Vc file successfully read")
+            fullname = new_profile._fullname(dname)
         else:
             print("ERROR status {}".format(status))
+            fullname = None
+
+        return fullname
 
     def deproject_nodes(self, map_name=None):
         """Deproject disc mass or flux
@@ -467,5 +484,34 @@ class GalacticDisc(Galaxy):
         """
         pass
 
+    def match_datamaps(self, mname1, mname2,
+                       dname1=None, dname2=None,
+                       odname1=None, odname2=None):
+        """Align two datamaps from two maps
 
+        Args:
+            mname1 (str): name of the first map
+            mname2 (str): name of the second map. If None, will use the first
+            dname1 (str): name of the first datamap
+            dname2 (str): name of the second datamap
+            odname1 (str): name of the output first datamap
+            odname2 (str): name of the output second datamap
 
+        """
+        # If map2_name is None, use None, which will make the process use the
+        # same map (map1)
+        map1 = self._get_map(mname1)
+        map2 = self._get_map(mname2)
+
+        # Call the tranform module function
+        newmap = match_datamaps(map1, map2, dname1, dname2, odname1,
+                                odname2)
+        if newmap is None:
+            print("[match_datamaps] Failed matching - Aborting")
+            return None
+
+        self.attach_map(newmap)
+
+        # Deprojecting this one
+        self.deproject_nodes(newmap.name)
+        return newmap.mname

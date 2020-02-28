@@ -52,7 +52,7 @@ def visualise_data(Xin, Yin, Zin, newextent=None,
 
 def show_tw(disc, slicing_name=None, map_name=None,
             coef=4, vminV=-150, vmaxV=150, live=True,
-            flag=None, **kwargs):
+            **kwargs):
     """Makes an interactive plot of the results from
     applying the Tremaine Weinberg method.
 

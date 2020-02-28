@@ -13,6 +13,7 @@ from .disc_data import Slicing
 from .misc_io import add_suffix
 from .plotting import show_tw
 from .check import _none_tozero_array
+from .fit_functions import fit_slope
 
 # Units
 from . import local_units as lu
@@ -26,30 +27,27 @@ class DensityWave(GalacticDisc):
     ----------
 
     """
-    def __init__(self, **kwargs):
+    def __init__(self, force_dtype=True, **kwargs):
         """
 
         Args:
-            verbose: bool.
-            data_name:
-            flag:
+            force_dtype (bool): forcing dtype or not [True]
         """
         self.verbose = kwargs.pop("verbose", False)
 
         # Using GalacticDisc class attributes
-        super().__init__(**kwargs)
+        super().__init__(force_dtype=force_dtype, **kwargs)
 
-    def get_bar_VRtheta(self, map_name=None):
+    def get_bar_VRtheta(self, mname=None):
         """Compute the in-plane deprojected velocities for a barred
         system, using a mirror technique developed by Witold Maciejewski.
 
         Input
         -----
-        dataset_name: str
-            Name of the DataSet to use
+        mname (str): Name of the map to use
        """
-        ds = self._get_map(map_name)
-        self.deproject_velocities(map_name)
+        ds = self._get_map(mname)
+        self.deproject_velocities(mname)
         ds.align_xy_deproj_bar(self)
 
         # Mirroring the Velocities
@@ -67,7 +65,8 @@ class DensityWave(GalacticDisc):
         ds.Vx = ds.Vr * cos(ds.gamma_rad) - ds.Vt * sin(ds.gamma_rad)
         ds.Vy = ds.Vr * sin(ds.gamma_rad) + ds.Vt * cos(ds.gamma_rad)
 
-    def tremaine_weinberg(self, slit_width=1.0, map_name=None,
+    def tremaine_weinberg(self, flux_name="flux", vel_name="vel",
+                          slit_width=1.0, mname=None,
                           **kwargs):
         """ Apply the standard Tremaine Weinberg to the disc Map.
 
@@ -75,25 +74,21 @@ class DensityWave(GalacticDisc):
 
         Input
         -----
-        slit_width : float [1.0]
-            Slit width in arcseconds.
-        Fdataname: str ['flux']
-        Vdataname: str ['vel']
-            names of the datamaps where to find the tracer (flux or mass)
-            and velocities
+        slit_width (float): Slit width in arcsecond [1.0]
+        flux_name (str): ['flux']
+        vel_name (str): ['vel']
+            names of the datamaps where to find the tracer (flux or velocities)
         """
         # Getting the map from the name. If name is None, use the 1st one
-        ds = self._get_map(map_name)
+        ds = self._get_map(mname)
         # Align the axes
         ds.align_xy_lineofnodes(self)
         # Get the unit for X, Y
         uXY = ds.XYunit
 
         # Getting the maps (tracer flux, and velocities)
-        Fname = kwargs.pop("Fdataname", "flux")
-        Vname = kwargs.pop("Vdataname", "vel")
-        Fmap = ds.dmaps[Fname]
-        Vmap = ds.dmaps[Vname]
+        Fmap = ds.dmaps[flux_name]
+        Vmap = ds.dmaps[vel_name]
         Flux, eFlux, uFlux = Fmap.data, Fmap.edata, Fmap.dunit
         Vel, eVel, uVel = Vmap.data, Vmap.edata, Vmap.dunit
 
@@ -119,8 +114,8 @@ class DensityWave(GalacticDisc):
         fV_err = fV * np.sqrt((eFlux / Flux)**2 + (eVel / Vel)**2)
 
         ds_slits = Slicing(yin=ds.Y_lon, slit_width=slit_width)
-        ds_slits.Fname = Fname
-        ds_slits.Vname = Vname
+        ds_slits.flux_dmapname = flux_name
+        ds_slits.vel_dmapname = vel_name
         # Digitize the Y coordinates along the slits and minus 1 to be at the boundary
         dig = np.digitize(ds.Y_lon, ds_slits.yedges).ravel() - 1
         # Select out points which are out of the edges
@@ -156,10 +151,27 @@ class DensityWave(GalacticDisc):
         ds_slits.Omsini_tw_err = ds_slits.Omsini_tw * np.sqrt((ds_slits.dfV_tw_err / ds_slits.dfV_tw)**2
                                                               + (ds_slits.dfx_tw_err / ds_slits.dfx_tw)**2)
 
-        self.add_slicing(ds_slits, ds.name)
+        self.add_slicing(ds_slits, ds.mname)
 
-    def fit_slope_tw(self):
-        pass
+    def fit_slope_tw(self, slicing_name=None, select_num=[]):
+        """Fitting the slope of the Tremaine Weinberg method
+        """
+        # get the slicing
+        ds_slits = self._get_slicing(slicing_name)
+        if select_num == []:
+            sel = np.ones_like(ds_slits.dfx_tw, dtype=np.bool)
+        else:
+            sel = np.array(select_num).astype(np.int)
+        if ds_slits.dfx_tw_err is None or np.all(ds_slits.dfx_tw_err == 0):
+            e_dfx = None
+        else:
+            e_dfx = ds_slits.dfx_tw_err[sel]
+        if ds_slits.dfV_tw_err is None or np.all(ds_slits.dfV_tw_err == 0):
+            e_dfV = None
+        else:
+            e_dfV = ds_slits.dfV_tw_err[sel]
+        return fit_slope(ds_slits.dfx_tw[sel], ds_slits.dfV_tw[sel],
+                         e_dfx, e_dfV)
 
     def plot_tw(self, slicing_name=None, **kwargs):
         """Plot the results from the Tremaine Weinberg method.
