@@ -252,6 +252,7 @@ class Map(object):
                     if mapname in mname:
                         basename = remove_suffix(mname, mapname)
                         return getattr(self.dmaps[mapname], basename)
+        raise AttributeError("'Map' object has no attribute {}".format(mname))
 
     def __dir__(self):
         return  super().__dir__() + [add_suffix(attr, map) for item in ['data', 'edata']
@@ -276,8 +277,8 @@ class Map(object):
             # We get the grid in pixel
             print("WARNING: X or Y not provided. Using Pixel XY grid.")
             ref_ind = np.indices(self.shape, dtype=default_float)
-            self.X = ref_ind[1] - (self.shape[1] - 1.) / 2.
-            self.Y = ref_ind[0] - (self.shape[0] - 1.) / 2.
+            self.X = ref_ind[1] - self.Xcen
+            self.Y = ref_ind[0] - self.Ycen
             # And now convert to default unit
             self._convert_to_xyunit()
         else:
@@ -835,6 +836,7 @@ class Profile(object):
                     if profname in dname:
                         basename = remove_suffix(dname, profname)
                         return getattr(self.dprofiles[profname], basename)
+        raise AttributeError("'Profile' object has no attribute {}".format(dname))
 
     def __dir__(self, list_names=default_data_names):
         return  super().__dir__() + [add_suffix(attr, prof) for item in list_names
@@ -1008,7 +1010,7 @@ def match_datamaps(map1, map2=None, dname1=None, dname2=None,
     print("INFO[match_datamaps]: Creating the first map {0} and "
           "attaching first datamap {1}".format(omname1, dname1))
     newMap = Map(mname=omname1, data=new_data1, edata=new_edata1, order=0,
-                 mtype=mtype1, X=Xn, Y=Yn, dtype=dtype1, flag=map1.flag,
+                 mtype=mtype1, X=Xn, Y=Yn, dtype=dtype1, flag=dmap1.flag,
                  dname=odname1)
 
     # Adding the second datamap

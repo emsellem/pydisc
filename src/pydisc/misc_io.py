@@ -25,7 +25,10 @@ class AttrDict(dict):
     the items as names
     """
     def __getattr__(self, item):
-        return self[item]
+        if item in self.keys():
+            return self[item]
+        else:
+            raise AttributeError("'AttrDict' object has no attribute '%s'" % item)
 
     def __dir__(self):
         return super(AttrDict).__dir__() + [str(k) for k in self.keys()]

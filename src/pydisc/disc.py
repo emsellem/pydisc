@@ -81,12 +81,12 @@ class GalacticDisc(Galaxy):
         # init slicing
         self._reset_slicing()
 
-    @property
-    def slicing(self):
-        if bool(self.slicings):
-            return self.slicings[list(self.slicings.keys())[0]]
-        else:
-            return {}
+    def __getattr__(self, item):
+        names = item.split(default_data_separator)
+        if len(names) ==2 and names[0] in self.maps.keys():
+            if names[1] in self.maps[names[0]].dmaps.keys():
+                return self.maps[names[0]].dmaps[names[1]]
+        raise AttributeError("'GalacticDisc' object has no attribute {}".format(item))
 
     def _decode_prof_name(self, name):
         list_prof_names = list(self.profiles.keys())
@@ -119,8 +119,11 @@ class GalacticDisc(Galaxy):
         return get_all_moment_types()
 
     def _get_slicing(self, slicing_name):
-        if slicing_name is None:
-            return self.slicing
+        if slicing_name not in self.slicings:
+            if bool(self.slicings):
+                return self.slicings[list(self.slicings.keys())[0]]
+            else:
+                return None
         else:
             return self.slicings[slicing_name]
 
@@ -128,7 +131,7 @@ class GalacticDisc(Galaxy):
         """Initialise the slice dictionary if needed
         """
         if not hasattr(self, "slicings"):
-            self.slicings = {}
+            self.slicings = AttrDict()
 
     def add_slicing(self, value, slicing_name=""):
         """
@@ -516,5 +519,5 @@ class GalacticDisc(Galaxy):
         self.attach_map(newmap)
 
         # Deprojecting this one
-        self.deproject_nodes(newmap.name)
+        self.deproject_nodes(newmap.mname)
         return newmap.mname

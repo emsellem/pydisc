@@ -73,8 +73,8 @@ def show_tw(disc, slicing_name=None, map_name=None,
     thismap = disc._get_map(map_name)
 
     # Set up colourbar limits for the image
-    Fname = kwargs.pop("Fname", slicing.Fname)
-    Vname = kwargs.pop("Vname", slicing.Vname)
+    Fname = kwargs.pop("Fname", slicing.flux_dmapname)
+    Vname = kwargs.pop("Vname", slicing.vel_dmapname)
     Flux = getattr(thismap.dmaps, Fname).data
     Vel = getattr(thismap.dmaps, Vname).data
     sel_flux = (Flux != 0)

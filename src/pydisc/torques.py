@@ -40,6 +40,16 @@ class TorqueMap(object):
         self.pc_per_pixel = self.pixel_scale * self.fac_pc
         self.PAnodes = PAnodes
 
+    @property
+    def XY_extent(self):
+        return [np.min(self.Xdep), np.max(self.Xdep),
+                np.min(self.Ydep), np.max(self.Ydep)]
+
+    @property
+    def XYpc_extent(self):
+        return [np.min(self.Xdep_pc), np.max(self.Xdep_pc),
+                np.min(self.Ydep_pc), np.max(self.Ydep_pc)]
+
     def get_mass_profile(self):
         """Compute the 1d mass profile
         """

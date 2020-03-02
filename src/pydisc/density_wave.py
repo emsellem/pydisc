@@ -158,6 +158,8 @@ class DensityWave(GalacticDisc):
         """
         # get the slicing
         ds_slits = self._get_slicing(slicing_name)
+        if ds_slits is None:
+            return None
         if select_num == []:
             sel = np.ones_like(ds_slits.dfx_tw, dtype=np.bool)
         else:
