@@ -2,9 +2,13 @@
 Changelog
 =========
 
+Version 0.2
+===========
+
+- Full push and clean version
+
 Version 0.1
 ===========
 
-- Feature A added
-- FIX: nasty bug #1729 fixed
-- add your changes here!
+- First full structure of Map, DataMap, Profile, DataProfile
+- DensityWave, GalacticTorque working

@@ -3,8 +3,9 @@ pydisc
 ======
 
 
-pydisc is a python package dealing with galactic discs and allows a variety of
-derivations including torques, moments, pattern speeds and dynamical quantities.
+pydisc is a python package meant to include functionalities associated with
+galactic disc and the derivations including torques, moments, pattern speeds
+and dynamical quantities.
 
 Description
 ===========
