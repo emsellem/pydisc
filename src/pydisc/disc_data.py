@@ -250,7 +250,8 @@ class Map(object):
             if mname.startswith(suffix):
                 for mapname in self.dmaps.keys():
                     if mapname in mname:
-                        basename = remove_suffix(mname, mapname)
+                        basename = remove_suffix(mname, mapname,
+                                                 separator=default_data_separator)
                         return getattr(self.dmaps[mapname], basename)
         raise AttributeError("'Map' object has no attribute {}".format(mname))
 

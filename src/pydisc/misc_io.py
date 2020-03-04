@@ -105,7 +105,7 @@ def remove_suffix(name, suffix=None, separator=default_suffix_separator):
     """
     if suffix is None or not name.endswith(suffix):
         return name
-    elif name.endswith(suffix+separator):
+    elif name.endswith(separator+suffix):
         return name.replace(separator+suffix, "")
     elif name.endswith(suffix):
         return name.replace(suffix, "")

@@ -42,8 +42,8 @@ class DensityWave(GalacticDisc):
         """Compute the in-plane deprojected velocities for a barred
         system, using a mirror technique developed by Witold Maciejewski.
 
-        Input
-        -----
+        Parameters
+        ----------
         mname (str): Name of the map to use
        """
         ds = self._get_map(mname)

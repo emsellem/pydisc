@@ -66,7 +66,18 @@ def get_potential(mass, gravpot_kernel):
     return -Ggrav.value * convolve_fft(mass, gravpot_kernel)
 
 def get_forces(xpc, ypc, gravpot, PAx=0):
-    """Calculation of the forces
+    """Calculate the forces from a given potential
+
+    Args:
+        xpc (array): x coordinate in parsec
+        ypc (array): y coordinate in parsec
+        gravpot (array): gravitational potential
+        PAx: position angle of the Ox axis
+
+    Returns:
+       F_grad, Fx, Fy, Frad, Ftan (arrays):
+           gradient, x y radial and tangential
+           components of the forces
     """
     # Force from the gradient of the potential
     # gravpot in (km/s)^2 hence F_grad in d/pixel

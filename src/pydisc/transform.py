@@ -14,32 +14,32 @@ from scipy import stats
 from .misc_io import default_float, guess_stepxy, \
                      get_extent, get_1d_radial_sampling
 
-def mirror_grid(X, Y) :
+def mirror_grid(X, Y):
     """Find the mirrored grid (above/below major-axis)
 
-    Input
-    -----
-    Xin, Yin: input grid (numpy arrays)
+    Args:
+        X (array):
+        Y (array): input grid (numpy arrays)
 
-    Returns
-    -------
-    Xin -Yin
+    Returns:
+        X, -Y
     """
     return X, -Y
 
-# Rotating a set of X,Y
 def rotate_vectors(X=None, Y=None, matrix=np.identity(2), ftype=default_float,
-                   origin=[0,0]) :
+                   origin=[0,0]):
     """Rotation of coordinates using an entry matrix
 
-    Input
-    -----
-    X, Y: input grid (arrays)
-    matrix : transformation matrix (matrix)
+    Args:
+        X (array):
+        Y (array): input grid
+        matrix (array):  transformation matrix
+        ftype: type of the array (default is float)
+        origin (list of 2 floats): origin location, x, y of the rotation
 
-    Returns
-    -------
-    The rotated array
+    Returns:
+        The rotated array
+
     """
     shape = X.shape
     newX, newY = np.asarray(matrix @
@@ -49,7 +49,7 @@ def rotate_vectors(X=None, Y=None, matrix=np.identity(2), ftype=default_float,
     return (newX+origin[0]).reshape(shape), (newY+origin[1]).reshape(shape)
 
 # Setting up the rotation matrix
-def set_rotmatrix(angle=0.0) :
+def set_rotmatrix(angle=0.0):
     """Rotation matrix given a specified angle
 
     Parameters:
@@ -61,28 +61,27 @@ def set_rotmatrix(angle=0.0) :
     rotation_matrix: matrix
     """
     cosa, sina = cos(angle), sin(angle)
-    return np.matrix([[cosa, sina],[-sina, cosa]])
+    return np.array([[cosa, sina],[-sina, cosa]])
 
 # --------------------------------------------------
 # Functions to provide reference matrices
 # --------------------------------------------------
 # Setting up the stretching matrix
-def set_stretchmatrix(coefX=1.0, coefY=1.0) :
-    """Streching matrix
+def set_stretchmatrix(coefX=1.0, coefY=1.0):
+    """Stretching matrix
 
-    Parameters:
-    -----------
-    coefX,
-    coefY : coefficients (float) for the matrix
+    Args:
+        coefX:
+        coefY:coefficients (float) for the matrix
               [coefX   0
                0   coefY]
-    Returns
-    -------
+
+    Returns:
     strectching_matrix: matrix
     """
     return np.array([[coefX, 0],[0, coefY]])
 
-def set_reverseXmatrix() :
+def set_reverseXmatrix():
     """Reverse X axis using set_strechmatrix(-1.0, 1.0)
 
     Returns
@@ -91,7 +90,7 @@ def set_reverseXmatrix() :
     """
     return set_stretchmatrix(-1.0, 1.0)
 
-def set_reverseYmatrix() :
+def set_reverseYmatrix():
     """Reverse Y axis using set_strechmatrix(1.0, -1.0)
 
     Return
@@ -131,7 +130,7 @@ def regrid_XY(Xin, Yin, newextent=None, newstep=None):
 # Resampling X, Y and Z (first regrid X, Y)
 # --------------------------------------------------
 def regrid_XYZ(Xin, Yin, Zin, newextent=None, newstep=None,
-                  fill_value=np.nan, method='linear') :
+                  fill_value=np.nan, method='linear'):
     """Resample input data from an irregular grid
     First it derives the limits, then guess the
     step it should use (if not provided)
@@ -150,7 +149,7 @@ def regrid_XYZ(Xin, Yin, Zin, newextent=None, newstep=None,
 # --------------------------------------------------
 # Resampling Z according to input X, Y
 # --------------------------------------------------
-def regrid_Z(Xin, Yin, Zin, newX, newY, fill_value=np.nan, method='linear') :
+def regrid_Z(Xin, Yin, Zin, newX, newY, fill_value=np.nan, method='linear'):
     """Resample input data from an irregular grid
     First it derives the limits, then guess the step
     it should use (if not provided)
@@ -255,7 +254,7 @@ def interpolate_profile(x, data, edata=None, step=1.0):
         edfine = scipy.interpolate.splev(xfine, coeff_espline)
     return xfine, dfine, edfine
 
-def xy_to_polar(x, y, cx=0.0, cy=0.0, angle=0.) :
+def xy_to_polar(x, y, cx=0.0, cy=0.0, angle=0.):
     """
     Convert x and y coordinates into polar coordinates
 
@@ -285,7 +284,7 @@ def xy_to_polar(x, y, cx=0.0, cy=0.0, angle=0.) :
     theta[(x > 0.)] = np.arctan(y[(x > 0.)] / x[(x > 0.)])
     return r, np.rad2deg(theta)
 
-def polar_to_xy(r, theta) :
+def polar_to_xy(r, theta):
     """
     Convert x and y coordinates into polar coordinates
 
@@ -298,7 +297,7 @@ def polar_to_xy(r, theta) :
     theta_rad = np.deg2rad(theta)
     return r * np.cos(theta_rad), r * np.sin(theta_rad)
 
-def rotxC(x, y, cx=0.0, cy=0.0, angle=0.0) :
+def rotxC(x, y, cx=0.0, cy=0.0, angle=0.0):
     """ Rotate by an angle (in degrees)
         the x axis with a center cx, cy
 
@@ -307,7 +306,7 @@ def rotxC(x, y, cx=0.0, cy=0.0, angle=0.0) :
     angle_rad = np.deg2rad(angle)
     return (x - cx) * np.cos(angle_rad) + (y - cy) * np.sin(angle_rad)
 
-def rotyC(x, y, cx=0.0, cy=0.0, angle=0.0) :
+def rotyC(x, y, cx=0.0, cy=0.0, angle=0.0):
     """ Rotate by an angle (in degrees)
         the y axis with a center cx, cy
 
@@ -316,7 +315,7 @@ def rotyC(x, y, cx=0.0, cy=0.0, angle=0.0) :
     angle_rad = np.deg2rad(angle)
     return (cx - x) * np.sin(angle_rad) + (y - cy) * np.cos(angle_rad)
 
-def rotxyC(x, y, cx=0.0, cy=0.0, angle=0.0) :
+def rotxyC(x, y, cx=0.0, cy=0.0, angle=0.0):
     """ Rotate both x, y by an angle (in degrees)
         the x axis with a center cx, cy
 

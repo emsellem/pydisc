@@ -88,7 +88,7 @@ class TorqueMap(object):
         """Calculate the forces from the potential
         """
         self.Fgrad, self.Fx, self.Fy, self.Frad, self.Ftan = \
-            gpot.get_forces(self.Xdep * self.fac_pc, self.Ydep * self.fac_pc,
+            gpot.get_forces(self.Xdep_pc, self.Ydep_pc,
                             self.gravpot, self.PAnodes+90.0)
 
     def get_vrot_from_forces(self):

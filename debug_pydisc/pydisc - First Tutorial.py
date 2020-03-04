@@ -67,7 +67,7 @@
 
 # Here is an example of how to get a Tremaine-Weinberg calculation made on a set of maps using the *DensityWave* class.
 
-# In[2]:
+# In[13]:
 
 
 # Importing the package and the DensityWave class
@@ -90,7 +90,7 @@ flux = maps['FLUX'].data
 vel = maps['V_STARS'].data
 
 
-# In[3]:
+# In[14]:
 
 
 # mname is for mapname. 
@@ -99,7 +99,7 @@ mydisc = DensityWave(data_flux=flux, edata_flux=np.zeros_like(flux),
                      mname="MUSE", Xcen=462.5, Ycen=464.4, PAnodes=90)
 
 
-# In[4]:
+# In[15]:
 
 
 # We can now look at the structure itself. 'mydisc' has a one map, which is named 'MUSE'. 
@@ -107,14 +107,14 @@ mydisc = DensityWave(data_flux=flux, edata_flux=np.zeros_like(flux),
 mydisc.maps
 
 
-# In[5]:
+# In[16]:
 
 
 # We can also find out about the other variables:
 mydisc.maps['MUSE'].X
 
 
-# In[6]:
+# In[17]:
 
 
 # This Map actually has datamaps as shown here, each one having data.
@@ -122,34 +122,34 @@ mydisc.maps['MUSE'].X
 mydisc.maps['MUSE'].dmaps
 
 
-# In[7]:
+# In[18]:
 
 
 # We can call the data like this (note that the array shows the nan from the outer part of the map)
 mydisc.maps['MUSE'].dmaps['flux'].data
 
 
-# In[8]:
+# In[19]:
 
 
 # or like this using the combined "data" with the name of the data map.
 mydisc.maps['MUSE'].dmaps.flux.data
 
 
-# In[9]:
+# In[20]:
 
 
 # to make it simpler, the maps and dmaps are merged into one attribute automatically
 mydisc.MUSE_flux
 
 
-# In[10]:
+# In[21]:
 
 
 mydisc.MUSE_flux.data
 
 
-# In[11]:
+# In[22]:
 
 
 # Now let's do the Tremaine Weinberg step. Defining slits of 5 arcsec.
@@ -158,7 +158,7 @@ mydisc.MUSE_flux.data
 mydisc.tremaine_weinberg(slit_width=5.0, map_name="MUSE")
 
 
-# In[12]:
+# In[23]:
 
 
 # And you can now look at the result
@@ -175,7 +175,7 @@ print("Omega sinus(inclin) of TW method", mydisc.slicings['MUSE'].Omsini_tw)
 
 # Now let's consider the other class inheriting from the GalacticDisc class, namely: GalacticTorque, which itself uses TorqueMap(s).
 
-# In[13]:
+# In[24]:
 
 
 from pydisc.torques import GalacticTorque
@@ -187,63 +187,113 @@ gas6951 = gas6951.reshape(gas6951.shape[0]*gas6951.shape[1], gas6951.shape[2])
 vc6951 = "rot-co21un-01.tex"
 
 
-# In[14]:
+# In[25]:
 
 
-t51 = GalacticTorque(vcfile_name=n6951folder+vc6951, vcfile_type="ROTCUR",
+t51 = GalacticTorque(vcfile_name=n6951folder+vc6951, vcfile_type="ROTCUR", dtypemass='massd',
                     datamass=mass6951, datacomp=gas6951, Xcenmass=178.0, Ycenmass=198.0,
                     Xcencomp=148.0, Ycencomp=123.0, inclination=41.5, distance=35.0,
                     PA_nodes=138.7, pixel_scalecomp=0.1, pixel_scalemass=0.025)
 
 
-# You can then see what is in t51 structure:
-
-# In[15]:
-
-
-t51.maps
-
-
-# In[16]:
+# In[26]:
 
 
 t51.maps['mass'].dmaps
 
 
-# In[17]:
+# In[27]:
 
 
 from matplotlib import pyplot as plt
-plt.imshow(t51.maps['mass'].dmaps['mass01'].data)
+plt.imshow(t51.maps['mass'].dmaps['mass01'].data, extent=t51.maps['mass'].XY_extent)
 
 
-# In[18]:
+# In[28]:
 
 
-plt.imshow(t51.maps['comp'].dmaps['comp01'].data)
+plt.imshow(t51.maps['comp'].dmaps['comp01'].data, extent=t51.maps['comp'].XY_extent)
 
 
-# In[19]:
+# In[29]:
+
+
+# but note that these maps are now on the same grid in the massgrid map
+plt.imshow(t51.maps['massgrid'].dmaps['dmass'].data, extent=t51.maps['massgrid'].XY_extent)
+
+
+# In[30]:
+
+
+plt.imshow(t51.maps['massgrid'].dmaps['dcomp'].data, extent=t51.maps['massgrid'].XY_extent)
+
+
+# In[31]:
 
 
 # Now running the torques
 t51.run_torques()
 
 
-# In[20]:
+# In[32]:
 
 
 t51.tmaps
 
 
-# In[21]:
+# In[33]:
 
 
 plt.imshow(t51.tmaps['Torq01'].Fx)
 
 
-# In[24]:
+# In[34]:
 
 
 plt.imshow(t51.tmaps['Torq01'].torque_map)
+
+
+# In[35]:
+
+
+# and now for 4579
+from astropy.io import fits as pyfits
+from pydisc.misc_io import extract_fits
+from pydisc.torques import GalacticTorque
+from astropy.table import Table
+folderd = '/home/science/PHANGS/Test_Packages/pydisc/for_eric/'
+dCO, hCO, stepCO = extract_fits(folderd + "/NGC4579_CO.fits")
+dmass, hmass, stepmass = extract_fits(folderd + "NGC4579.stellar_mass.fits")
+
+folder_rot = '/home/science/PHANGS/ALMA/'
+rot = Table.read(folder_rot + "RC_master_table_Nov2019_apy.txt", format='ascii')
+RCO = rot['Radius[kpc]'].data
+VCO = rot['ngc4579_Vrot'].data
+RCO_arcsec = RCO * 1000 / 95.12323059
+
+dist = 19.8
+inclin = 36.0
+PA =95
+t4579 = GalacticTorque(datavel=VCO, Rvel=RCO_arcsec, dtypemass="massd",
+                     datamass=dmass, datacomp=dCO, Xcenmass=374.4, Ycenmass=406.3,
+                     Xcencomp=233.28, Ycencomp=224.07, inclination=inclin, distance=dist,
+                     PAnodes=PA, pixel_scalecomp=stepCO[0], pixel_scalemass=stepmass[0])
+
+
+# In[36]:
+
+
+t4579.run_torques()
+
+
+# In[37]:
+
+
+t4579.tmaps['Torq01']
+
+
+# In[40]:
+
+
+plt.imshow(t4579.tmaps['Torq01'].torque_map, vmin=-1, vmax=1, extent=t4579.tmaps['Torq01'].XYpc_extent)
 
