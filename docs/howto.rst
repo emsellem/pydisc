@@ -1,15 +1,6 @@
 ======
-pydisc
+How To
 ======
-
-
-pydisc is a python package meant to include functionalities associated with
-galactic discs and associate dynamics derivations including torques, moments,
-pattern speeds and dynamical quantities.
-
-Description
-===========
-
 This package is meant as a facility to ease the management of maps and profiles associated
 with a galactic disc, and provides a few functions all related to dynamical quantities and
 modelling. The package itself is quickly evolving.
@@ -88,9 +79,3 @@ Same applies for all argument of the maps and data, for example (using the same 
 orderMUSE_vstar, XMUSE, YMUSE, XcenMUSE, YcenMUSE, flagMUSE_vstar...
 In this way you can have several datamaps attached to a single map and have e.g.,:
 XMUSE, YMUSE, dataMUSE_vstar, dataMUSE_gas, dataMUSE_...
-
-Note
-====
-
-This project has been set up using PyScaffold 3.2.3. For details and usage
-information on PyScaffold see https://pyscaffold.org/.
