@@ -356,9 +356,10 @@ class Map(object):
         """Convert XYunit into the default one
         a priori arcseconds.
         """
-        self.X *= self.xyunit_per_pixel
-        self.Y *= self.xyunit_per_pixel
+        self.X *= self.xyunit_per_pixel * self.pixel_scale
+        self.Y *= self.xyunit_per_pixel * self.pixel_scale
         # Update the unit
+        self.pixel_scale = 1.0
         self.XYunit = dict_units['XY']
 
     @property
@@ -502,7 +503,7 @@ class Map(object):
         """
         self.__alpha_North = alpha_North
         self.__alpha_North_rad = deg2rad(alpha_North)
-        self._mat_NE = self._mat_direct * transform.set_rotmatrix(self.__alpha_North_rad)
+        self._mat_NE = self._mat_direct @ transform.set_rotmatrix(self.__alpha_North_rad)
 
     def _get_angle_from_PA(self, PA):
         """Provide a way to get the angle within the original
@@ -525,7 +526,7 @@ class Map(object):
         """Set the Line of Nodes (defined by its Position Angle, angle from the North
         going counter-clockwise) as the positive X axis
         """
-        self._mat_lon_NE = galaxy._mat_lon * self._mat_NE
+        self._mat_lon_NE = galaxy._mat_lon.dot(self._mat_NE)
         self.X_lon, self.Y_lon = self.rotate(matrix=self._mat_lon_NE)
 
     def deproject(self, galaxy):
@@ -538,13 +539,13 @@ class Map(object):
         """Set the bar (defined by its Position Angle, angle from the North
         going counter-clockwise) as the positive X axis
         """
-        self.X_bar, self.Y_bar = self.rotate(matrix=galaxy._mat_bar * self._mat_NE)
+        self.X_bar, self.Y_bar = self.rotate(matrix=galaxy._mat_bar @ self._mat_NE)
 
     def align_xy_deproj_bar(self, galaxy) :
         """Set the bar (defined by its Position Angle, angle from the North
         going counter-clockwise) as the positive X axis after deprojection
         """
-        self._mat_deproj_bar = galaxy._mat_bardep * galaxy._mat_inc * galaxy._mat_lon * self._mat_NE
+        self._mat_deproj_bar = galaxy._mat_bardep @ galaxy._mat_inc @ galaxy._mat_lon @ self._mat_NE
         self.X_bardep, self.Y_bardep = self.rotate(matrix=self._mat_deproj_bar)
 
         ## Mirroring the coordinates
@@ -962,7 +963,7 @@ class Slicing(object):
 
 
 def match_datamaps(map1, map2=None, dname1=None, dname2=None,
-                   odname1=None, odname2=None):
+                   odname1=None, odname2=None, PAnodes=0.):
     """Aligning two datamaps
 
     Args:
@@ -1007,12 +1008,12 @@ def match_datamaps(map1, map2=None, dname1=None, dname2=None,
     dtype1 = dmap1.dtype.lower()
     dtype2 = dmap2.dtype.lower()
 
-    # Creating the nw Map
+    # Creating the new Map
     print("INFO[match_datamaps]: Creating the first map {0} and "
           "attaching first datamap {1}".format(omname1, dname1))
     newMap = Map(mname=omname1, data=new_data1, edata=new_edata1, order=0,
                  mtype=mtype1, X=Xn, Y=Yn, dtype=dtype1, flag=dmap1.flag,
-                 dname=odname1)
+                 dname=odname1, alpha_north=-90.0-PAnodes)
 
     # Adding the second datamap
     print("INFO[match_datamaps]: attaching the datamap {0} to map {1}".format(

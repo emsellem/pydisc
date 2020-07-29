@@ -17,12 +17,14 @@ from . import gravpot_functions as gpot
 
 class TorqueMap(object):
     def __init__(self, massmap, mass_dname, comp_dname,
-                 velprof, vel_dname, fac_pc=1.0, PAnodes=0.0):
+                 velprof, vel_dname, fac_pc=1.0, PAnodes=0.0,
+                 factor_hz=12.0):
         self.massmap = massmap
         self.mass_dname = mass_dname
         self.comp_dname = comp_dname
         self.velprof = velprof
         self.vel_dname = vel_dname
+        self.factor_hz = factor_hz
 
         self.dmass = self.massmap.dmaps[self.mass_dname]
         self.dcomp = self.massmap.dmaps[self.comp_dname]
@@ -73,7 +75,7 @@ class TorqueMap(object):
     def get_kernel(self, softening=0.0, function="sech2"):
         """Get the kernel array
         """
-        hz_pc = self.Rl_disc * self.fac_pc / 24.
+        hz_pc = self.Rl_disc * self.fac_pc / self.factor_hz
         self.kernel = gpot.get_gravpot_kernel(self.Rdep_pc, hz_pc,
                                               pc_per_pixel=self.pc_per_pixel,
                                               softening=softening,
@@ -89,7 +91,7 @@ class TorqueMap(object):
         """
         self.Fgrad, self.Fx, self.Fy, self.Frad, self.Ftan = \
             gpot.get_forces(self.Xdep_pc, self.Ydep_pc,
-                            self.gravpot, self.PAnodes+90.0)
+                            self.gravpot, self.PAnodes)
 
     def get_vrot_from_forces(self):
         """Calculate the velocities from forces
@@ -108,16 +110,18 @@ class TorqueMap(object):
         self.torque_w_map = gpot.get_weighted_torque(self.Xdep_pc, self.Ydep_pc,
                                           self.Fx, self.Fy, self.dcomp.data)
 
-    def get_torque_profiles(self, n_rbins=200):
+    def get_torque_profiles(self, n_rbins=300):
         """Get the profiles from the torque
         """
         self.r_mean, self.v_mean, self.torque_mean, self.torque_mean_w, \
-            self.ang_mom_mean, self.dl, self.dm, self.dm_sum = \
+            self.ang_mom_mean, self.Trot, self.dm, self.dm_sum = \
             gpot.get_torque_profiles(self.Xdep_pc, self.Ydep_pc, self.VcU,
                                      self.Fx, self.Fy, self.dcomp.data,
                                      n_rbins=n_rbins)
+        self.Trot = 2. * np.pi * self.r_mean / self.v_mean
+        self.dloL = self.torque_mean_w * self.Trot / self.ang_mom_mean
 
-    def get_torques(self, n_rbins=200):
+    def get_torques(self, n_rbins=300):
         """Calculate the torques from existing forces
 
         Args:
@@ -363,9 +367,11 @@ class GalacticTorque(GalacticDisc):
         fac_pc = self.pc_per_xyunit(self.massmap.XYunit)
 
         # Defining the structure in which the torques will be calculated
+        # Note that PAnodes is now -90 as we put the nodes along the X axis - horizontal
+        # During the matching
         newT = TorqueMap(self.massmap, self.mass_dname, self.comp_dname,
                          self.velprof, self.vel_dname, fac_pc=fac_pc,
-                         PAnodes=self.PAnodes)
+                         PAnodes=-90.0)
 
         # Running the torque calculation
         newT.run_torques(softening=softening, n_rbins=n_rbins,

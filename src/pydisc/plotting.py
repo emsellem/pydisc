@@ -23,7 +23,6 @@ import matplotlib.gridspec as gridspec
 import cmocean
 
 from .misc_functions import clipping_to_rectangle
-from .misc_io import  add_suffix
 
 def visualise_data(Xin, Yin, Zin, newextent=None,
                    fill_value=np.nan, method='linear',

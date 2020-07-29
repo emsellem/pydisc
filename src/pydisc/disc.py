@@ -511,7 +511,7 @@ class GalacticDisc(Galaxy):
 
         # Call the tranform module function
         newmap = match_datamaps(map1, map2, dname1, dname2, odname1,
-                                odname2)
+                                odname2, PAnodes=self.PAnodes)
         if newmap is None:
             print("[match_datamaps] Failed matching - Aborting")
             return None

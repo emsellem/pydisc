@@ -47,8 +47,8 @@ def get_gravpot_kernel(rpc, hz_pc=None, pc_per_pixel=1.0, softening=0.0, functio
 
     # Integrating over the entire range - Normalised integral
     hn = h / np.sum(h, axis=None)
-
     kernel = hn[np.newaxis,np.newaxis,...] / (np.sqrt(rpc[...,np.newaxis]**2 + softening**2 + zpc**2))
+
     return np.sum(kernel, axis=2) / np.sum(kernel)
 
 def get_potential(mass, gravpot_kernel):
@@ -63,9 +63,12 @@ def get_potential(mass, gravpot_kernel):
     """
     # Initialise array with zeroes
     # G in (km/s)^2 / Msun / pc
-    return -Ggrav.value * convolve_fft(mass, gravpot_kernel)
+    return -Ggrav.value * convolve_fft(mass, gravpot_kernel, 
+                                       preserve_nan=False,
+                                       normalize_kernel=False,
+                                       boundary='wrap')
 
-def get_forces(xpc, ypc, gravpot, PAx=0):
+def get_forces(xpc, ypc, gravpot, PAx=-90.0):
     """Calculate the forces from a given potential
 
     Args:
@@ -82,6 +85,7 @@ def get_forces(xpc, ypc, gravpot, PAx=0):
     # Force from the gradient of the potential
     # gravpot in (km/s)^2 hence F_grad in d/pixel
     F_grad = np.gradient(gravpot)
+    # Note that F_grad[1] is along-X, and [0] is along-Y
 
     # Getting the polar coordinates
     R, theta = xy_to_polar(xpc, ypc)
@@ -90,9 +94,13 @@ def get_forces(xpc, ypc, gravpot, PAx=0):
     stepy_pc = guess_stepx(ypc)
 
     # Force components in X and Y
-    PAx_rad = np.deg2rad(PAx)
-    Fx = ( np.cos(PAx_rad) * F_grad[1] + np.sin(PAx_rad) * F_grad[0]) / stepx_pc
-    Fy = (-np.sin(PAx_rad) * F_grad[1] + np.cos(PAx_rad) * F_grad[0]) / stepy_pc
+    dPhiy = F_grad[0]
+    dPhix = F_grad[1]
+
+    # If PAx is -90. degrees it means that
+    PAx_rad = np.deg2rad(PAx - 90.0)
+    Fx = ( np.cos(PAx_rad) * dPhix + np.sin(PAx_rad) * dPhiy) / stepx_pc
+    Fy = (-np.sin(PAx_rad) * dPhix + np.cos(PAx_rad) * dPhiy) / stepy_pc
 
     # Radial force vector in outward direction
     Frad =  Fx * np.cos(theta_rad) + Fy * np.sin(theta_rad)
@@ -141,14 +149,14 @@ def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100):
     vel_mean = stats.binned_statistic(rpc[goodw], vel.ravel()[goodw], statistic='mean', bins=rsamp)
     ang_mom_mean  = r_mean[0] * vel_mean[0]
 
-    # Specific angular momentum in one rotation
-    dl = torque_mean_w[0] / ang_mom_mean
+    # T rotation
+    trot = 2. * np.pi * r_mean[0] / vel_mean[0]
 
     # Mass inflow/outflow rate
-    dm = dl * 2. * np.pi * r_mean[0] * weights_mean[0]
+    dm = torque_mean_w * 2. * np.pi * r_mean[0] * weights_mean[0] / ang_mom_mean
 
     # Mass inflow/outflow integrated over a certain radius R
     dm_sum = np.cumsum(dm) * stepr
 
-    return r_mean[0], vel_mean[0], torque_mean[0], torque_mean_w, ang_mom_mean, dl, dm, dm_sum
+    return r_mean[0], vel_mean[0], torque_mean[0], torque_mean_w, ang_mom_mean, trot, dm, dm_sum
 

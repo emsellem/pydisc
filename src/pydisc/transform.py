@@ -13,6 +13,7 @@ from scipy import stats
 
 from .misc_io import default_float, guess_stepxy, \
                      get_extent, get_1d_radial_sampling
+from .check import _check_consistency_sizes
 
 def mirror_grid(X, Y):
     """Find the mirrored grid (above/below major-axis)
@@ -108,7 +109,7 @@ def regrid_XY(Xin, Yin, newextent=None, newstep=None):
     """
 
     # First test consistency
-    test, [Xin, Yin] = _check_allconsistency_sizes([Xin, Yin])
+    test = _check_consistency_sizes([Xin, Yin])
     if not test :
         if verbose:
             print("Warning: not all array size are the same")
@@ -116,7 +117,7 @@ def regrid_XY(Xin, Yin, newextent=None, newstep=None):
 
     # Get the step and extent
     if newstep is None :
-        newstep = guess_stepxy(Xin, Yin, verbose=verbose)
+        newstep = guess_stepxy(Xin, Yin)
     if newextent is None :
         newextent = get_extent(Xin, Yin)
     [Xmin, Xmax, Ymin, Ymax] = newextent
@@ -126,6 +127,11 @@ def regrid_XY(Xin, Yin, newextent=None, newstep=None):
     Xnewgrid, Ynewgrid = np.meshgrid(np.linspace(Xmin, Xmax, nX),
                                      np.linspace(Ymin, Ymax, nY))
     return newextent, newstep, Xnewgrid, Ynewgrid
+
+def rotate_data(Xin, Yin, Zin, angle=0., cx=0., cy=0.):
+    rx, ry = rotxyC(Xin, Yin, cx=cx, cy=cy, angle=angle)
+    return regrid_XYZ(rx, ry, Zin)
+
 # --------------------------------------------------
 # Resampling X, Y and Z (first regrid X, Y)
 # --------------------------------------------------
