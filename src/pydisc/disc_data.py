@@ -435,6 +435,8 @@ class Map(object):
         if self._check_datamap(datamap):
             datamap._reshape_datamap(self.shape)
             self.dmaps[datamap.dname] = datamap
+            print("INFO: Attaching datamap {0} of type {1} (unit = {2})".format(
+                      datamap.dname, datamap.flag, datamap.dunit))
         else:
             print("WARNING[attach_datamap]: could not attach datamap")
 
@@ -1013,7 +1015,7 @@ def match_datamaps(map1, map2=None, dname1=None, dname2=None,
           "attaching first datamap {1}".format(omname1, dname1))
     newMap = Map(mname=omname1, data=new_data1, edata=new_edata1, order=0,
                  mtype=mtype1, X=Xn, Y=Yn, dtype=dtype1, flag=dmap1.flag,
-                 dname=odname1, alpha_north=-90.0-PAnodes)
+                 dunit=dmap1.dunit, dname=odname1, alpha_north=-90.0-PAnodes)
 
     # Adding the second datamap
     print("INFO[match_datamaps]: attaching the datamap {0} to map {1}".format(

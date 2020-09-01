@@ -252,7 +252,7 @@ class GalacticDisc(Galaxy):
             print("ERROR[attach_prof]: cannot attach profile (None) - Aborting")
             return
 
-        print("INFO: attaching prof {}".format(newprof.pname))
+        print("INFO: attaching profile {}".format(newprof.pname))
         self.profiles[newprof.pname] = newprof
 
     def _has_map_data(self, mname, dname, **kwargs):
