@@ -9,7 +9,7 @@ __copyright__ = "Eric Emsellem"
 __license__ = "mit"
 
 from .disc import GalacticDisc
-from .misc_io import add_suffix, AttrDict
+from .misc_io import add_suffix, AttrDict, guess_stepx
 from .transform import extract_radial_profile_fromXY
 from .maps_grammar import remap_suffix, _is_flag_density
 from .local_units import km_pc
@@ -18,7 +18,7 @@ from . import gravpot_functions as gpot
 
 class TorqueMap(object):
     def __init__(self, massmap, mass_dname, comp_dname,
-                 velprof, vel_dname, fac_pc=1.0, PAnodes=0.0,
+                 velprof, vel_dname, pc_per_xyunit=1.0, PAnodes=0.0,
                  factor_hz=12.0):
         self.massmap = massmap
         self.mass_dname = mass_dname
@@ -30,17 +30,19 @@ class TorqueMap(object):
         self.dmass = self.massmap.dmaps[self.mass_dname]
         self.dcomp = self.massmap.dmaps[self.comp_dname]
         self.dvel = self.velprof.dprofiles[self.vel_dname]
-        self.fac_pc = fac_pc
+        self.pc_per_xyunit = pc_per_xyunit
 
         # Check the coordinates
         self.Xdep = self.massmap.X_londep
         self.Ydep = self.massmap.Y_londep
         self.Rdep = np.sqrt(self.Xdep**2 + self.Ydep**2)
-        self.Xdep_pc = self.Xdep * self.fac_pc
-        self.Ydep_pc = self.Ydep * self.fac_pc
-        self.Rdep_pc = self.Rdep * self.fac_pc
-        self.pixel_scale = self.massmap.pixel_scale
-        self.pc_per_pixel = self.pixel_scale * self.fac_pc
+        self.Xdep_pc = self.Xdep * self.pc_per_xyunit
+        self.Ydep_pc = self.Ydep * self.pc_per_xyunit
+        self.Rdep_pc = self.Rdep * self.pc_per_xyunit
+        self.pc_per_x = guess_stepx(self.Xdep_pc)
+        self.pc_per_y = guess_stepx(self.Ydep_pc)
+        # Using the average between the x and y step in parsec
+        self.pc_per_pixel = (self.pc_per_x + self.pc_per_y) / 2.
         self.PAnodes = PAnodes
 
     @property
@@ -76,7 +78,7 @@ class TorqueMap(object):
     def get_kernel(self, softening=0.0, function="sech2"):
         """Get the kernel array
         """
-        hz_pc = self.Rl_disc * self.fac_pc / self.factor_hz
+        hz_pc = self.Rl_disc * self.pc_per_xyunit / self.factor_hz
         self.kernel = gpot.get_gravpot_kernel(self.Rdep_pc, hz_pc,
                                               pc_per_pixel=self.pc_per_pixel,
                                               softening=softening,
@@ -85,7 +87,9 @@ class TorqueMap(object):
     def get_gravpot(self):
         """Calculate the gravitational potential
         """
-        self.gravpot = gpot.get_potential(self.massmap.faceon, self.kernel)
+        self.gravpot = gpot.get_potential(self.massmap.faceon 
+                                          * self.pc_per_x * self.pc_per_y, 
+                                          self.kernel)
 
     def get_forces(self):
         """Calculate the forces from the potential
@@ -367,13 +371,13 @@ class GalacticTorque(GalacticDisc):
             self.init_torque_components(velname=velname, compname=compname,
                                         massname=massname)
 
-        fac_pc = self.pc_per_xyunit(self.massmap.XYunit)
+        pc_per_xy = self.pc_per_xyunit(self.massmap.XYunit)
 
         # Defining the structure in which the torques will be calculated
         # Note that PAnodes is now -90 as we put the nodes along the X axis - horizontal
         # During the matching
         newT = TorqueMap(self.massmap, self.mass_dname, self.comp_dname,
-                         self.velprof, self.vel_dname, fac_pc=fac_pc,
+                         self.velprof, self.vel_dname, pc_per_xyunit=pc_per_xy,
                          PAnodes=-90.0)
 
         # Running the torque calculation

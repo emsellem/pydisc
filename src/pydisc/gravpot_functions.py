@@ -63,7 +63,7 @@ def get_potential(mass, gravpot_kernel):
     """
     # Initialise array with zeroes
     # G in (km/s)^2 * pc / Msun
-    # mass is in Msun / pc2 ? or Msun
+    # mass is in Msun 
     # kernel is in 1/pc
     return -Ggrav.value * convolve_fft(mass, gravpot_kernel, 
                                        preserve_nan=False,
@@ -90,7 +90,7 @@ def get_forces(xpc, ypc, gravpot, PAx=-90.0):
     # Note that F_grad[1] is along-X, and [0] is along-Y
 
     # Getting the polar coordinates
-    R, theta = xy_to_polar(xpc, ypc)
+    Rpc, theta = xy_to_polar(xpc, ypc)
     theta_rad = np.deg2rad(theta)
     stepx_pc = guess_stepx(xpc)
     stepy_pc = guess_stepx(ypc)
@@ -133,7 +133,8 @@ def get_weighted_torque(xpc, ypc, Fx, Fy, weights):
 def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100, pc_per_pixel=1.0):
     """Calculation of the gravity torques
     """
-    # Torque is just Deprojected_Gas * (X * Fy - y * Fx)
+    # Weighted Torque is just Deprojected_Gas * (X * Fy - y * Fx)
+    # Hence in (km/s)^2 * Msun / pc^2
     torque_w = get_weighted_torque(xpc, ypc, Fx, Fy, weights).ravel()
     goodw = (weights > 0.).ravel()
 
@@ -142,7 +143,8 @@ def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100, pc_per_pixe
     rsamp, stepr = get_1d_radial_sampling(rpc, n_rbins)
 
     # And now binning with the various weights
-    # Torque
+    # Torque in (km/s)^2, weighted Torque in (km/s)^2 * Msun / pc^2
+    # Weights should be in Msun/pc2
     weights_mean = stats.binned_statistic(rpc[goodw], weights.ravel()[goodw], statistic='mean', bins=rsamp)
     torque_mean = stats.binned_statistic(rpc[goodw], torque_w[goodw], statistic='mean', bins=rsamp)
     torque_mean_w = torque_mean[0] / weights_mean[0]
@@ -151,10 +153,12 @@ def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100, pc_per_pixe
     r_mean = stats.binned_statistic(rpc[goodw], rpc[goodw], statistic='mean', bins=rsamp)
     vel_mean = stats.binned_statistic(rpc[goodw], vel.ravel()[goodw], statistic='mean', bins=rsamp)
     # In km2 / s
-    ang_mom_mean  = r_mean[0] * vel_mean[0] * km_pc
+    ang_mom_mean  = r_mean[0] * km_pc * vel_mean[0]
 
     # Mass inflow/outflow rate
-    # in Msun/yr/pc
+    # Torque_mean is in (km/s)^2 * Msun / pc^2
+    # So T_m / (vel_mean * km_pc) in Msun / pc / s
+    # so dm in Msun/yr/pc
     dm = torque_mean[0] * 2. * np.pi * s_yr / (vel_mean[0] * km_pc)
 
     # Mass inflow/outflow integrated over a certain radius R
