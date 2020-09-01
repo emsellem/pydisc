@@ -235,7 +235,7 @@ class GalacticDisc(Galaxy):
             print("ERROR[attach_map]: cannot attach map (None) - Aborting")
             return
 
-        print("INFO: attaching map {}".format(newmap.mname))
+        print("INFO: attaching map {0}".format(newmap.mname))
         newmap.align_axes(self)
         self.maps[newmap.mname] = newmap
 
@@ -509,7 +509,7 @@ class GalacticDisc(Galaxy):
         map1 = self._get_map(mname1)
         map2 = self._get_map(mname2)
 
-        # Call the tranform module function
+        # Call the transform module function
         newmap = match_datamaps(map1, map2, dname1, dname2, odname1,
                                 odname2, PAnodes=self.PAnodes)
         if newmap is None:
