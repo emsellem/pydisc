@@ -570,7 +570,7 @@ class Map(object):
 
     def intmap_to_densitymap(self, dname, galaxy):
         """Change intensity into density quantity
-        by deviding by the XYunit**2
+        by dividing by the XYunit**2
 
         Args:
             dname (str): name of the datamap

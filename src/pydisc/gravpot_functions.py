@@ -8,7 +8,7 @@ from scipy import stats
 from .misc_io import guess_stepx, get_1d_radial_sampling
 from .misc_functions import sech, sech2
 from .transform import xy_to_polar
-from .local_units import Ggrav
+from .local_units import Ggrav, s_yr, km_pc
 
 from astropy.convolution import convolve_fft
 
@@ -62,7 +62,9 @@ def get_potential(mass, gravpot_kernel):
         Potential from the convolution of the potential_kernel and mass
     """
     # Initialise array with zeroes
-    # G in (km/s)^2 / Msun / pc
+    # G in (km/s)^2 * pc / Msun
+    # mass is in Msun / pc2 ? or Msun
+    # kernel is in 1/pc
     return -Ggrav.value * convolve_fft(mass, gravpot_kernel, 
                                        preserve_nan=False,
                                        normalize_kernel=False,
@@ -93,14 +95,15 @@ def get_forces(xpc, ypc, gravpot, PAx=-90.0):
     stepx_pc = guess_stepx(xpc)
     stepy_pc = guess_stepx(ypc)
 
-    # Force components in X and Y
-    dPhiy = F_grad[0]
-    dPhix = F_grad[1]
+    # Force components in X and Y in (km/s)^2 / pc
+    dPhiy = F_grad[0] / stepy_pc
+    dPhix = F_grad[1] / stepx_pc
 
     # If PAx is -90. degrees it means that
     PAx_rad = np.deg2rad(PAx - 90.0)
-    Fx = ( np.cos(PAx_rad) * dPhix + np.sin(PAx_rad) * dPhiy) / stepx_pc
-    Fy = (-np.sin(PAx_rad) * dPhix + np.cos(PAx_rad) * dPhiy) / stepy_pc
+    # Fx and Fy are now in (km/s)**2 / pc 
+    Fx = ( np.cos(PAx_rad) * dPhix + np.sin(PAx_rad) * dPhiy)
+    Fy = (-np.sin(PAx_rad) * dPhix + np.cos(PAx_rad) * dPhiy)
 
     # Radial force vector in outward direction
     Frad =  Fx * np.cos(theta_rad) + Fy * np.sin(theta_rad)
@@ -127,7 +130,7 @@ def get_torque(xpc, ypc, Fx, Fy):
 def get_weighted_torque(xpc, ypc, Fx, Fy, weights):
     return get_torque(xpc, ypc, Fx, Fy) * weights
 
-def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100):
+def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100, pc_per_pixel=1.0):
     """Calculation of the gravity torques
     """
     # Torque is just Deprojected_Gas * (X * Fy - y * Fx)
@@ -147,16 +150,15 @@ def get_torque_profiles(xpc, ypc, vel, Fx, Fy, weights, n_rbins=100):
     # Angular momentum
     r_mean = stats.binned_statistic(rpc[goodw], rpc[goodw], statistic='mean', bins=rsamp)
     vel_mean = stats.binned_statistic(rpc[goodw], vel.ravel()[goodw], statistic='mean', bins=rsamp)
-    ang_mom_mean  = r_mean[0] * vel_mean[0]
-
-    # T rotation
-    trot = 2. * np.pi * r_mean[0] / vel_mean[0]
+    # In km2 / s
+    ang_mom_mean  = r_mean[0] * vel_mean[0] * km_pc
 
     # Mass inflow/outflow rate
-    dm = torque_mean_w * 2. * np.pi * r_mean[0] * weights_mean[0] / ang_mom_mean
+    # in Msun/yr/pc
+    dm = torque_mean[0] * 2. * np.pi * s_yr / (vel_mean[0] * km_pc)
 
     # Mass inflow/outflow integrated over a certain radius R
+    # In Msun/yr
     dm_sum = np.cumsum(dm) * stepr
 
-    return r_mean[0], vel_mean[0], torque_mean[0], torque_mean_w, ang_mom_mean, trot, dm, dm_sum
-
+    return r_mean[0], vel_mean[0], torque_mean[0], torque_mean_w, ang_mom_mean, dm, dm_sum

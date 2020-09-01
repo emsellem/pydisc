@@ -12,6 +12,7 @@ from .disc import GalacticDisc
 from .misc_io import add_suffix, AttrDict
 from .transform import extract_radial_profile_fromXY
 from .maps_grammar import remap_suffix, _is_flag_density
+from .local_units import km_pc
 from . import fit_functions as ff
 from . import gravpot_functions as gpot
 
@@ -114,11 +115,13 @@ class TorqueMap(object):
         """Get the profiles from the torque
         """
         self.r_mean, self.v_mean, self.torque_mean, self.torque_mean_w, \
-            self.ang_mom_mean, self.Trot, self.dm, self.dm_sum = \
+            self.ang_mom_mean, self.dm, self.dm_sum = \
             gpot.get_torque_profiles(self.Xdep_pc, self.Ydep_pc, self.VcU,
                                      self.Fx, self.Fy, self.dcomp.data,
-                                     n_rbins=n_rbins)
-        self.Trot = 2. * np.pi * self.r_mean / self.v_mean
+                                     n_rbins=n_rbins, pc_per_pixel=self.pc_per_pixel)
+        # T in s
+        self.Trot = 2. * np.pi * self.r_mean * km_pc / self.v_mean
+        # dloL adimensional
         self.dloL = self.torque_mean_w * self.Trot / self.ang_mom_mean
 
     def get_torques(self, n_rbins=300):

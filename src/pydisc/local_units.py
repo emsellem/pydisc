@@ -22,6 +22,8 @@ Msunpc2 = Msun / u.pc**2
 kms = u.km / u.s
 kmskpc = u.km / u.s / u.kpc
 kms2 = (u.km / u.s)**2
+km_pc = u.pc.to(u.km)
+s_yr = u.yr.to(u.s)
 
 def get_conversion_factor(unit, newunit, equiv=[], verbose=True):
     """Get the conversion factor for astropy units
