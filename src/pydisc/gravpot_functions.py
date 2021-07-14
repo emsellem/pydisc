@@ -82,7 +82,8 @@ def get_forces(xpc, ypc, gravpot, PAx=-90.0):
     Returns:
        F_grad, Fx, Fy, Frad, Ftan (arrays):
            gradient, x y radial and tangential
-           components of the forces
+           components of the forces. 
+           Units should be in km^2.s^-2.pc^-1
     """
     # Force from the gradient of the potential
     # gravpot in (km/s)^2 hence F_grad in d/pixel

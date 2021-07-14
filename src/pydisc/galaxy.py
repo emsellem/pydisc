@@ -44,7 +44,8 @@ class Galaxy(object):
 
     @property
     def pc_per_arcsec(self):
-        """Return the scale pc per arcsecond"""
+        """Return the scale pc per arcsecond
+        """
         return misc_functions.get_pc_per_arcsec(self.distance)
 
     @property

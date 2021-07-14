@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-This provides the basis for torque computation
+This provides the basis for torque computation via two additional
+classes: TorqueMap which has data for a torque derivation and 
+GalacticTorque which derives from GalacticDisc and contains the torque
+maps.
 """
 import numpy as np
 
@@ -17,9 +20,13 @@ from . import fit_functions as ff
 from . import gravpot_functions as gpot
 
 class TorqueMap(object):
+    """Main map class for the torques
+    """
     def __init__(self, massmap, mass_dname, comp_dname,
                  velprof, vel_dname, pc_per_xyunit=1.0, PAnodes=0.0,
                  factor_hz=12.0):
+        """
+        """
         self.massmap = massmap
         self.mass_dname = mass_dname
         self.comp_dname = comp_dname
@@ -41,27 +48,70 @@ class TorqueMap(object):
         self.Rdep_pc = self.Rdep * self.pc_per_xyunit
         self.pc_per_x = guess_stepx(self.Xdep_pc)
         self.pc_per_y = guess_stepx(self.Ydep_pc)
+
+        # We also need a maximised X and Y grid to help with the kernel
+        self.Xdep_pcexp, self.Ydep_pcexp = self.get_XYpcexp()
+        self.Rdep_pcexp = np.sqrt(self.Xdep_pcexp**2 + self.Ydep_pcexp**2)
+
         # Using the average between the x and y step in parsec
         self.pc_per_pixel = (self.pc_per_x + self.pc_per_y) / 2.
         self.PAnodes = PAnodes
 
     @property
     def XY_extent(self):
+        """Provide the extent - a la matplotlib - for
+        the given map grid
+        """
         return [np.min(self.Xdep), np.max(self.Xdep),
                 np.min(self.Ydep), np.max(self.Ydep)]
 
     @property
     def XYpc_extent(self):
+        """Provide the extent in parsec - a la matplotlib - for
+        the given map grid
+        """
         return [np.min(self.Xdep_pc), np.max(self.Xdep_pc),
                 np.min(self.Ydep_pc), np.max(self.Ydep_pc)]
 
-    def get_mass_profile(self):
-        """Compute the 1d mass profile
+    def get_XYpcexp(self):
+        """Provided an expanded grid for X and Y
+        which will be used later for the kernel convolution
+        """
+        maxXpc = np.max(np.abs(self.Xdep_pc))
+        maxYpc = np.max(np.abs(self.Ydep_pc))
+        maxX = np.max(np.abs(self.Xdep_pc))
+        stepX = self.Xdep_pc[0,1] - self.Xdep_pc[0,0]
+        stepY = self.Ydep_pc[1,0] - self.Ydep_pc[0,0]
+        npixX = np.int(maxXpc // stepX) + 1
+        npixY = np.int(maxYpc // stepY) + 1
+        nmaxXpc = npixX * stepX
+        nmaxYpc = npixY * stepY
+        xlin = np.linspace(-nmaxXpc, nmaxXpc, npixX * 2 + 1)
+        ylin = np.linspace(-nmaxYpc, nmaxYpc, npixY * 2 + 1)
+        eX, eY = np.meshgrid(xlin, ylin)
+        return eX, eY
+
+    def get_mass_profile(self, wedge_size=0.0, wedge_angle=0):
+        """Compute the 1d mass profile using the dmass.data
+        and a number of bins. A wedge-angle and size can be used to indicate
+        where to extract the data. Uses the extract_radial_profile_fromXY
+        function.
+
+        Input
+        -----
+        wedge_size (float): size of the wedge in degrees [0]
+        wedge_angle (float): angle of the central wedge (in degrees) [0]
+
+        Creates
+        -------
+        self.Rmass1d and self.mass1d following the deprojected grid Xdep, Ydep
+        and the dmass.data map.
         """
         self.Rmass1d, self.mass1d = extract_radial_profile_fromXY(self.Xdep, self.Ydep,
                                                                   self.dmass.data,
                                                                   nbins=None, verbose=True,
-                                                                  wedge_size=0.0, wedge_angle=0)
+                                                                  wedge_size=wedge_size, 
+                                                                  wedge_angle=wedge_angle)
 
     def fit_mass_profile(self):
         """Fit the 1d mass profile
@@ -79,7 +129,7 @@ class TorqueMap(object):
         """Get the kernel array
         """
         hz_pc = self.Rl_disc * self.pc_per_xyunit / self.factor_hz
-        self.kernel = gpot.get_gravpot_kernel(self.Rdep_pc, hz_pc,
+        self.kernel = gpot.get_gravpot_kernel(self.Rdep_pcexp, hz_pc,
                                               pc_per_pixel=self.pc_per_pixel,
                                               softening=softening,
                                               function=function)
@@ -93,6 +143,7 @@ class TorqueMap(object):
 
     def get_forces(self):
         """Calculate the forces from the potential
+        Units should be in km^2.s^-2.pc^-2
         """
         self.Fgrad, self.Fx, self.Fy, self.Frad, self.Ftan = \
             gpot.get_forces(self.Xdep_pc, self.Ydep_pc,
@@ -105,6 +156,9 @@ class TorqueMap(object):
 
     def get_torque_map(self):
         """Compute the torque map
+
+        Units back are units of X * F (hence pc * F)
+        Since F is in (km/s)^2 pc-1 -> torque in (km/s)^2
         """
         self.torque_map = gpot.get_torque(self.Xdep_pc, self.Ydep_pc,
                                           self.Fx, self.Fy)
