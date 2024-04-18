@@ -9,6 +9,8 @@ method, in-plane velocities (Maciejewski et al. method).
 
 # general modules
 from collections import OrderedDict
+import numpy as np
+from astropy.wcs import WCS
 
 # External modules
 from os.path import join as joinpath
@@ -17,9 +19,13 @@ from os.path import join as joinpath
 from .galaxy import Galaxy
 from .disc_data import Map, Profile, match_datamaps
 from .misc_io import AttrDict, read_vc_file
+from .transform import regrid_XY
 from .maps_grammar import analyse_maps_kwargs, list_Map_attr, list_Profile_attr
 from .maps_grammar import extract_suff_from_keywords, default_data_separator
 from . import local_units as lu
+
+# Reproject
+from reproject import reproject_interp, reproject_adaptive
 
 def get_moment_attr(order):
     """Returns all potential attribute names for this order
@@ -462,6 +468,37 @@ class GalacticDisc(Galaxy):
         """Deproject disc mass or flux
         """
         self._get_map(map_name).deproject(self)
+
+    def deproject_map(self, map_name=None, converve_flux=False):
+        """Produce the deprojected array
+        """
+        # First deproject to get the line of nodes and rotation matrix
+        self.deproject_nodes(map_name=map_name)
+
+        # get the map
+        thismap = self._get_map(map_name)
+        data = thismap._get_datamap()
+        # find the new grid
+        newext, newstep, Xn, Yn = regrid_XY(thismap.X_londep, thismap.Y_londep)
+        # calculate the new central pixel
+        newcrpix = [np.abs(newext[0]) / newstep + 1, np.abs(newext[2]) / newstep + 1]
+
+        # Define a simple input WCS for the input map
+        input_wcs = WCS(naxis=2)
+        input_wcs.wcs.crpix = thismap.Xcen, thismap.Ycen
+        input_wcs.wcs.cdelt = thismap.scalex, thismap.scaley
+        input_wcs.wcs.pc = thismap._mat_lon_NE
+
+        # Define a lower resolution output WCS with rotation
+        output_wcs = WCS(naxis=2)
+        output_wcs.wcs.crpix = newcrpix
+        output_wcs.wcs.cdelt = newstep, newstep * np.cos(np.deg2rad(self.inclin))
+
+        result_interp, footprint = reproject_adaptive((data.data, input_wcs),
+                                             output_wcs, shape_out=Xn.shape,
+                                             conserve_flux=conserve_flux, 
+                                             kernel='gaussian')
+        return newext, newstep, result_interp, footprint
 
     def deproject_vprofile(self, profile_name):
         """Deproject Velocity values by dividing by the sin(inclination)

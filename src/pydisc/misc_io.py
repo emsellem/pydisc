@@ -242,8 +242,17 @@ def extract_fits(fits_name, pixelsize=1., verbose=True):
 # --------------------------------------------------
 
 def guess_stepx(Xin):
-    pot_step = np.array([np.min(np.abs(np.diff(Xin, axis=i))) for i in range(Xin.ndim)])
-    return np.min(pot_step[pot_step > 0.])
+    steps = []
+    maxcounts = []
+    for i in range(Xin.ndim):
+        values, counts = np.unique(np.diff(Xin, axis=i), return_counts=True)
+        step = values[counts.argmax()]
+        if step > 0.:
+            steps.append(step)
+            maxcounts.append(counts[counts.argmax()])
+
+    pot_step = steps[np.array(maxcounts).argmax()]
+    return pot_step
 
 def guess_stepxy(Xin, Yin, index_range=[0,100], verbose=False) :
     """Guess the step from a 1 or 2D grid
@@ -265,8 +274,9 @@ def guess_stepxy(Xin, Yin, index_range=[0,100], verbose=False) :
     stackXY = np.vstack((Xin.ravel()[index_range[0]: index_range[1]], Yin.ravel()[index_range[0]: index_range[1]]))
 #    xybest = kdtree.KDTree(stackXY).query(stackXY)
 #    step = np.linalg.norm(xybest[1] - xybest[0])
-    diffXY = np.unique(distance.pdist(stackXY.T))
-    step = np.min(diffXY[diffXY > 0])
+    values, counts = np.unique(distance.pdist(stackXY.T), return_counts=True)
+    sel = values > 0.
+    step = values[sel][counts[sel].argmax()]
     if verbose:
         print("New step will be %s"%(step))
 

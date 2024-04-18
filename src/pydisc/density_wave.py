@@ -163,7 +163,7 @@ class DensityWave(GalacticDisc):
         if select_num == []:
             sel = np.ones_like(ds_slits.dfx_tw, dtype=np.bool)
         else:
-            sel = np.array(select_num).astype(np.int)
+            sel = np.array(select_num).astype(int)
         if ds_slits.dfx_tw_err is None or np.all(ds_slits.dfx_tw_err == 0):
             e_dfx = None
         else:

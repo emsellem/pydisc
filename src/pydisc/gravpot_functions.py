@@ -31,7 +31,7 @@ def get_gravpot_kernel(rpc, hz_pc=None, pc_per_pixel=1.0, softening=0.0, functio
 
     # Deriving the scale height, just using 1/12. of the size of the box
     if hz_pc is None:
-        hz_px = np.int(rpc.shape[0] / 24.)
+        hz_px = int(rpc.shape[0] / 24.)
     else:
         hz_px = hz_pc / pc_per_pixel
 

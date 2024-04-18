@@ -123,7 +123,7 @@ def regrid_XY(Xin, Yin, newextent=None, newstep=None):
     [Xmin, Xmax, Ymin, Ymax] = newextent
 
     dX, dY = Xmax - Xmin, Ymax - Ymin
-    nX, nY = np.int(dX / newstep + 1), np.int(dY / newstep + 1)
+    nX, nY = int(dX / newstep + 1), int(dY / newstep + 1)
     Xnewgrid, Ynewgrid = np.meshgrid(np.linspace(Xmin, Xmax, nX),
                                      np.linspace(Ymin, Ymax, nY))
     return newextent, newstep, Xnewgrid, Ynewgrid
@@ -136,7 +136,7 @@ def rotate_data(Xin, Yin, Zin, angle=0., cx=0., cy=0.):
 # Resampling X, Y and Z (first regrid X, Y)
 # --------------------------------------------------
 def regrid_XYZ(Xin, Yin, Zin, newextent=None, newstep=None,
-                  fill_value=np.nan, method='linear'):
+                  fill_value=np.nan, method='linear', verbose=True):
     """Resample input data from an irregular grid
     First it derives the limits, then guess the
     step it should use (if not provided)
@@ -147,7 +147,11 @@ def regrid_XYZ(Xin, Yin, Zin, newextent=None, newstep=None,
     """
 
     if Zin is None: return None
+    if verbose:
+        print("Regridding now - first X and Y")
     newextent, newstep, newX, newY = regrid_XY(Xin, Yin, newextent, newstep)
+    if verbose:
+        print("And now Z")
     newZ = regrid_Z(Xin, Yin, Zin, newX, newY,
                     fill_value=fill_value, method=method)
     return newextent, newX, newY, newZ
@@ -165,7 +169,8 @@ def regrid_Z(Xin, Yin, Zin, newX, newY, fill_value=np.nan, method='linear'):
     grid and interpolated values
     """
 
-    if Zin is None: return None
+    if Zin is None: 
+        return None
     newZ = gdata(np.vstack((Xin.ravel(), Yin.ravel())).T, Zin.ravel(),
                  np.vstack((newX.ravel(), newY.ravel())).T,
                  fill_value=fill_value, method=method)
@@ -206,12 +211,20 @@ def deproject_frame(data, PA, inclination=90.0):
                            [0.0, 1.0]])
 
     # Rotate Disk around theta
-    disc_rot = rotate(np.asarray(disc_rec), PA - 90., reshape=False)
+    disc_rot = rotate(np.asarray(data), PA - 90., reshape=True)
+
+    # Now restricting the frame to the relevant data
+    good = np.argwhere(disc_rot != 0)
+    egood = [np.min(good[:,0]), np.max(good[:,0]), np.min(good[:,1]), np.max(good[:,1])]
+
+    disc_rott = disc_rot[egood[0]: egood[1], egood[2]: egood[3]]
+    nYsize, nXsize = disc_rott.shape
+    dnYsize = int(nYsize / np.cos(phi))
 
     # Deproject Image
     offy = Ysize / 2 - 1. - (Ysize / 2 - 1.) * np.cos(phi)
-    disc_dpj_c = affine_transform(disc_rot, dpj_matrix,
-                                  offset=(offy, 0))[:Ysize, :Xsize]
+    disc_dpj_c = affine_transform(disc_rott, dpj_matrix,
+                                  offset=(offy, 0), output_shape=[dnYsize, nXsize])
 
     return disc_dpj_c
 
@@ -336,7 +349,8 @@ def rotxyC(x, y, cx=0.0, cy=0.0, angle=0.0):
 
 def extract_radial_profile_fromXY(X, Y, data, nbins=None,
                                   verbose=True,
-                                  wedge_size=0.0, wedge_angle=0.):
+                                  wedge_size=0.0, wedge_angle=0.,
+                                  statistic='mean'):
     """Extract a radial profile from an X,Y, data grod
 
     Args:
@@ -356,11 +370,12 @@ def extract_radial_profile_fromXY(X, Y, data, nbins=None,
     return extract_radial_profile(rmap, np.nan_to_num(data), nbins=nbins,
                                   thetamap=thetamap,
                                   verbose=verbose, wedge_size=wedge_size,
-                                  wedge_angle=wedge_angle)
+                                  wedge_angle=wedge_angle, statistic=statistic)
 
 def extract_radial_profile(rmap, data, nbins=None,
                            thetamap=None, verbose=True,
-                           wedge_size=0.0, wedge_angle=0.):
+                           wedge_size=0.0, wedge_angle=0.,
+                           statistic='mean'):
     """Extract a radial profile from input frame
     Given theta and r maps
 
@@ -394,7 +409,7 @@ def extract_radial_profile(rmap, data, nbins=None,
         print("Deriving the radial profile ... \n")
 
     if nbins is None:
-        nbins = np.int(np.sqrt(rmap.size) * 1.5)
+        nbins = int(np.sqrt(rmap.size) * 1.5)
 
     # First deriving the max and cutting it in nbins
     rsamp, stepr = get_1d_radial_sampling(rmap, nbins)
@@ -407,7 +422,6 @@ def extract_radial_profile(rmap, data, nbins=None,
     # Filling in the values for y (only if there are some selected pixels)
     sel_wedge = (thetamap > wedge_size) & (thetamap < 180.0 - wedge_size)
     rdata, bin_edges, bin_num = stats.binned_statistic(rmap[sel_wedge], data[sel_wedge],
-                                                       statistic='mean', bins=rsamp)
+                                                       statistic=statistic, bins=rsamp)
     # Returning the obtained profile
     return rsamp[:-1], rdata
-

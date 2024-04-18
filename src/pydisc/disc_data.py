@@ -19,7 +19,7 @@ from .maps_grammar import (analyse_maps_kwargs, analyse_data_kwargs,
                            _is_flag_density, remap_suffix, _add_density_prefix)
 
 from .misc_io import (add_suffix, add_prefix, default_float, add_err_prefix,
-                      AttrDict, remove_suffix, guess_stepxy, get_extent,
+                      AttrDict, remove_suffix, guess_stepx, guess_stepxy, get_extent,
                       cover_linspace)
 
 from . import check, transform
@@ -349,6 +349,14 @@ class Map(object):
         return u.pixel_scale(self.pixel_scale * self.XYunit / u.pixel)
 
     @property
+    def scalex(self):
+        return guess_stepx(self.X)
+
+    @property
+    def scaley(self):
+        return guess_stepx(self.Y)
+
+    @property
     def _get_pixel_scale(self):
         return (1. * u.pixel).to(self.XYunit, equivalencies=self.eq_pscale).value
 
@@ -588,7 +596,7 @@ class Map(object):
         dmap = self.dmaps[dname]
         # Test if the map is a density one using the type
         if not _is_flag_density(dmap.flag):
-            scalepc2 = galaxy.pc_per_xyunit(self.XYunit) ** 2
+            scalepc2 = galaxy.pc_per_xyunit(self.XYunit)**2
             newdata = dmap.data / scalepc2
             if dmap.edata is not None:
                 newedata = dmap.edata / scalepc2
@@ -941,7 +949,7 @@ class Slicing(object):
 
         Dy = np.abs(yextent[1] - yextent[0])
         if nslits is None:
-            self.nslits = np.int(Dy / slit_width + 1.0)
+            self.nslits = int(Dy / slit_width + 1.0)
             ye2 = (Dy - self.nslits * slit_width) / 2.
             # Adding left-over on both sides equally
             yextent = [yextent[0] - ye2, yextent[1] + ye2]

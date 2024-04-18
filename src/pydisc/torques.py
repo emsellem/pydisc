@@ -82,8 +82,8 @@ class TorqueMap(object):
         maxX = np.max(np.abs(self.Xdep_pc))
         stepX = self.Xdep_pc[0,1] - self.Xdep_pc[0,0]
         stepY = self.Ydep_pc[1,0] - self.Ydep_pc[0,0]
-        npixX = np.int(maxXpc // stepX) + 1
-        npixY = np.int(maxYpc // stepY) + 1
+        npixX = int(maxXpc // stepX) + 1
+        npixY = int(maxYpc // stepY) + 1
         nmaxXpc = npixX * stepX
         nmaxYpc = npixY * stepY
         xlin = np.linspace(-nmaxXpc, nmaxXpc, npixX * 2 + 1)

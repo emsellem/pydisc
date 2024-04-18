@@ -23,6 +23,7 @@ import matplotlib.gridspec as gridspec
 import cmocean
 
 from .misc_functions import clipping_to_rectangle
+from .transform import regrid_XYZ
 
 def visualise_data(Xin, Yin, Zin, newextent=None,
                    fill_value=np.nan, method='linear',
@@ -39,12 +40,12 @@ def visualise_data(Xin, Yin, Zin, newextent=None,
     fill_value : Default is numpy.nan
     method : 'linear' as Default for the interpolation, when needed.
     """
-    extent, newX, newY, newZ = resample_data(Xin, Yin, Zin,
-                                             newextent=newextent,
-                                             newstep=newstep,
-                                             fill_value=fill_value,
-                                             method=method,
-                                             verbose=verbose)
+    extent, newX, newY, newZ = regrid_XYZ(Xin, Yin, Zin,
+                                          newextent=newextent,
+                                          newstep=newstep,
+                                          fill_value=fill_value,
+                                          method=method,
+                                          verbose=verbose)
     plt.clf()
     plt.imshow(newZ, extent=extent, **kwargs)
     return extent, newX, newY, newZ
